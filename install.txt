@@ -1,0 +1,89 @@
+#Debian 9 only. For ubuntu php7 is replaced with php7.2
+#all commands issued as root (sudo su)
+
+#OPTIONAL tp Add 2nd disk (Azure)
+dmesg | grep SCSI
+sudo fdisk /dev/sdc
+n > p > w
+mkfs -t ext4 /dev/sdc1
+mkdir /datadrive
+mount /dev/sdc1 /datadrive
+blkid
+nano /etc/fstab
+#repalce with actual UUID
+UUID=33333333-3b3b-3c3c-3d3d-3e3e3e3e3e3e   /datadrive   ext4   defaults,nofail   1   2
+
+hostnamectl set-hostname xxxx.xxxx.xx
+apt -y install net-tools sudo wget curl bash-completion
+apt -y install apache2
+apt -y install libapache2-mod-php7.0 php7.0 php7.0-gd php7.0-xml php7.0-curl php7.0-mbstring php7.0-mcrypt php7.0-xmlrpc
+
+# For nextcloud add following line
+apt-get install php7.0-intl php7.0-mcrypt php-imagick php7.0-xml php7.0-zip
+
+apt -y install php7.0-mysql mariadb-server mariadb-client
+systemctl start mariadb
+mysql_secure_installation
+mysql
+use mysql;
+update user set plugin='' where User='root';
+flush privileges;
+quit
+
+a2enmod rewrite ssl
+nano /etc/apache2/sites-enabled/000-default.conf
+<Directory /data/www/html>
+       Options Indexes FollowSymLinks MultiViews
+       AllowOverride All
+       Require all granted
+</Directory>
+
+nano /etc/apache2/sites-available/default-ssl.conf
+<Directory /data/www/html>
+       Options Indexes FollowSymLinks MultiViews
+       AllowOverride All
+       Require all granted
+</Directory>
+SSLProtocol all -SSLv2 -SSLv3
+# Add SSL Cipher in one long line
+SSLCipherSuite          ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:CAMELLIA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA
+SSLHonorCipherOrder     on
+SSLOptions +StrictRequire
+Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains"
+Header always set X-Frame-Options DENY
+Header always set X-Content-Type-Options nosniff
+
+a2enmod headers
+systemctl restart apache2.service
+apache2ctl –t
+systemctl restart apache2.service mariadb.service
+systemctl enable apache2.service mariadb.service
+
+
+apt-get -y install certbot
+apt-get -y install python-certbot-apache
+certbot --authenticator webroot --installer apache
+crontab -e
+0 2 * * * certbot renew >> /var/log/letsencrypt.log
+
+#Wordpress installation
+
+mysql -u root -p
+
+#Change usernameand password. set database name
+CREATE USER 'USERNAME'@'localhost' IDENTIFIED BY 'PASSWORD';
+CREATE DATABASE wordpress;
+GRANT ALL ON `press`.* TO `USER`@`localhost`;
+FLUSH PRIVILEGES;
+exit;
+
+wget https://wordpress.org/latest.tar.gz
+tar xpf latest.tar.gz
+#Delete the default webpage from default root dir only if you want to install wordpress in root.
+rm -rf /data/www/html
+cp -r wordpress /data/www/html
+chown -R www-data:www-data /data/www/html
+find /data/www/html -type d -exec chmod 755 {} \;
+find /data/www/html -type f -exec chmod 644 {} \;
+
+#Go to the webpage and continue installation

@@ -1,4 +1,4 @@
-#Debian 9 only. For ubuntu php7 is replaced with php7.2
+#Debian 9 or 10. NowPHP 7.3 is supported
 #all commands issued as root (sudo su)
 
 #OPTIONAL tp Add 2nd disk (Azure)
@@ -16,12 +16,12 @@ UUID=33333333-3b3b-3c3c-3d3d-3e3e3e3e3e3e   /datadrive   ext4   defaults,nofail 
 hostnamectl set-hostname xxxx.xxxx.xx
 apt -y install net-tools sudo wget curl bash-completion
 apt -y install apache2
-apt -y install libapache2-mod-php7.0 php7.0 php7.0-gd php7.0-xml php7.0-curl php7.0-mbstring php7.0-mcrypt php7.0-xmlrpc
+apt -y install libapache2-mod-php7.3 php7.3 php7.3-gd php7.3-xml php7.3-curl php7.3-mbstring php7.3-mcrypt php7.3-xmlrpc
 
 # For nextcloud add following line
-apt-get install php7.0-intl php7.0-mcrypt php-imagick php7.0-xml php7.0-zip
+apt-get install php7.3-intl php-imagick php7.3-xml php7.3-zip
 
-apt -y install php7.0-mysql mariadb-server mariadb-client
+apt -y install php7.3-mysql mariadb-server mariadb-client
 systemctl start mariadb
 mysql_secure_installation
 mysql

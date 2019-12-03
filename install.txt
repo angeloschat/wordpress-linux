@@ -1,4 +1,4 @@
-#Debian 9 or 10. NowPHP 7.3 is supported
+#Debian 9 or 10. Now PHP 7.3 is supported
 #all commands issued as root (sudo su)
 
 #OPTIONAL tp Add 2nd disk (Azure)

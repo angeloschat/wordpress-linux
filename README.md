@@ -18,6 +18,7 @@ If you are looking for hosting your virtual machine (or vps as they called nowda
 Vultr, digital ocean or Linode are all very good options. Another option is to use AWS Ligtsale but it is untested by me.
 Both AWS and Azure offer free tiers worth of trying.
 
+Make you webserver installation more secure. Check out this nice tool https://ssl-config.mozilla.org/
 
 
 

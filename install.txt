@@ -49,7 +49,7 @@ SSLProtocol all -SSLv2 -SSLv3 -TLSv1.1 -TLSv1
 SSLCipherSuite ALL:+HIGH:!ADH:!EXP:!SSLv2:!SSLv3:!MEDIUM:!LOW:!NULL:!aNULL
 SSLHonorCipherOrder     on
 SSLOptions +StrictRequire
-Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains"
+Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
 Header always set X-Frame-Options DENY
 Header always set X-Content-Type-Options nosniff
 

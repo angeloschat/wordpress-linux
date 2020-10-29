@@ -61,7 +61,7 @@ systemctl enable apache2.service mariadb.service
 
 
 apt-get -y install certbot
-apt-get -y install python-certbot-apache
+apt install certbot python3-certbot-apache
 certbot --authenticator webroot --installer apache
 crontab -e
 0 2 * * * certbot renew >> /var/log/letsencrypt.log

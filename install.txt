@@ -19,7 +19,7 @@ apt -y install apache2
 #Ubuntu supports 7.4 in the latest version replace with 7.4
 apt -y install libapache2-mod-php7.3 php7.3 php7.3-gd php7.3-xml php7.3-curl php7.3-mbstring php7.3-xmlrpc
 
-# For nextcloud add following line
+# For nextcloud add following line / For Ubuntu replace with 7.4
 apt-get install php7.3-intl php-imagick php7.3-xml php7.3-zip
 
 apt -y install php7.3-mysql mariadb-server mariadb-client

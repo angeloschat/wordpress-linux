@@ -16,6 +16,7 @@ UUID=33333333-3b3b-3c3c-3d3d-3e3e3e3e3e3e   /datadrive   ext4   defaults,nofail 
 hostnamectl set-hostname xxxx.xxxx.xx
 apt -y install net-tools sudo wget curl bash-completion
 apt -y install apache2
+#Ubuntu supports 7.4 in the latest version replace with 7.4
 apt -y install libapache2-mod-php7.3 php7.3 php7.3-gd php7.3-xml php7.3-curl php7.3-mbstring php7.3-xmlrpc
 
 # For nextcloud add following line

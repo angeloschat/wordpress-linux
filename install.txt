@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 #Debian 9 or 10. Now PHP 8.0 is supported
+=======
+#Debian 9 or 10. Now PHP 7.3 is supported. Works also with Ubuntu latest. For Ubuntu PPHP 7.4 is supported
+>>>>>>> a6ffdbd1ffd388352015f20c8ab00ef5db80db36
 #all commands issued as root (sudo su)
 
 #OPTIONAL tp Add 2nd disk (Azure)
@@ -16,10 +20,18 @@ UUID=33333333-3b3b-3c3c-3d3d-3e3e3e3e3e3e   /datadrive   ext4   defaults,nofail 
 hostnamectl set-hostname xxxx.xxxx.xx
 apt -y install net-tools sudo wget curl bash-completion
 apt -y install apache2
+<<<<<<< HEAD
 apt -y install libapache2-mod-php8.0 php8.0 php8.0-gd php8.0-xml php8.0-curl php8.0-mbstring
 
 # For nextcloud add following line
 apt-get install php8.0-intl php-imagick php8.0-xml php8.0-zip
+=======
+#Ubuntu supports 7.4 in the latest version replace with 7.4
+apt -y install libapache2-mod-php7.3 php7.3 php7.3-gd php7.3-xml php7.3-curl php7.3-mbstring php7.3-xmlrpc
+
+# For nextcloud add following line / For Ubuntu replace with 7.4
+apt-get install php7.3-intl php-imagick php7.3-xml php7.3-zip
+>>>>>>> a6ffdbd1ffd388352015f20c8ab00ef5db80db36
 
 apt -y install php8.0-mysql mariadb-server mariadb-client
 systemctl start mariadb

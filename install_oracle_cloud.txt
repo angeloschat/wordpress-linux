@@ -1,0 +1,18 @@
+hostnamectl set-hostname xxxx.xxxx.xx
+yum install install net-tools sudo wget curl bash-completion
+sudo yum install -y httpd
+sudo systemctl enable httpd
+sudo systemctl restart httpd
+sudo firewall-cmd --add-service=http --permanent
+sudo firewall-cmd --reload
+# dnf install https://rpms.remirepo.net/enterprise/remi-release-8.rpm
+sudo yum install -y php
+sudo systemctl restart httpd
+yum install mariadb-server
+systemctl enable --now mariadb
+mysql_secure_installation
+mysql -u root -p
+use mysql;
+update user set plugin='' where User='root';
+flush privileges;
+quit

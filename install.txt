@@ -18,11 +18,7 @@ apt -y install apache2
 apt -y install mariadb-server mariadb-client
 systemctl start mariadb
 mysql_secure_installation
-mysql
-use mysql;
-update user set plugin='' where User='root';
-flush privileges;
-quit
+
 curl -sSL https://packages.sury.org/php/README.txt | sudo bash -x
 
 apt install php8.1 libapache2-mod-php8.1 php8.1-cli php8.1-common php8.1-mbstring php8.1-xmlrpc php8.1-soap php8.1-gd php8.1-xml php8.1-intl php8.1-mysql php8.1-cli php8.1-ldap php8.1-zip php8.1-mcrypt php8.1-curl php8.1-opcache php8.1-readline php8.1-xml php8.1-gd

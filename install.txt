@@ -1,17 +1,5 @@
 #all commands issued as root (sudo su)
 
-#OPTIONAL tp Add 2nd disk (Azure)
-dmesg | grep SCSI
-sudo fdisk /dev/sdc
-n > p > w
-mkfs -t ext4 /dev/sdc1
-mkdir /datadrive
-mount /dev/sdc1 /datadrive
-blkid
-nano /etc/fstab
-#repalce with actual UUID
-UUID=33333333-3b3b-3c3c-3d3d-3e3e3e3e3e3e   /datadrive   ext4   defaults,nofail   1   2
-
 hostnamectl set-hostname xxxx.xxxx.xx
 apt -y install net-tools sudo wget curl unzip bash-completion
 apt -y install apache2
@@ -81,3 +69,15 @@ find /data/www/html -type d -exec chmod 755 {} \;
 find /data/www/html -type f -exec chmod 644 {} \;
 
 #Go to the webpage and continue installation
+
+#OPTIONAL tp Add 2nd disk (Azure)
+dmesg | grep SCSI
+sudo fdisk /dev/sdc
+n > p > w
+mkfs -t ext4 /dev/sdc1
+mkdir /datadrive
+mount /dev/sdc1 /datadrive
+blkid
+nano /etc/fstab
+#repalce with actual UUID
+UUID=33333333-3b3b-3c3c-3d3d-3e3e3e3e3e3e   /datadrive   ext4   defaults,nofail   1   2

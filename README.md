@@ -1,4 +1,6 @@
-Install wordpress on Debian or Ubuntu in few easy steps.
+**Install Wordpress on Debian or Ubuntu in few easy steps.**
+
+Updated on February 2024
 
 Keep it simple. No need for funcy plugins or many services. For most cases a virtual machine with 1vCPU and 1GB RAM is enough.
 Also use a CDN it helps a lot. Cloudflare is a good option (has a free plan that is perfect for small sized installations).

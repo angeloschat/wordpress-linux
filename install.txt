@@ -62,6 +62,8 @@ find /data/www/html -type d -exec chmod 755 {} \;
 find /data/www/html -type f -exec chmod 644 {} \;
 
 #Go to the webpage and continue installation
+# The following is needed during the config of wordpress
+# https://api.wordpress.org/secret-key/1.1/salt/
 
 #OPTIONAL Add 2nd disk 
 dmesg | grep SCSI

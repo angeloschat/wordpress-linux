@@ -61,9 +61,12 @@ chown -R www-data:www-data /data/www/html
 find /data/www/html -type d -exec chmod 755 {} \;
 find /data/www/html -type f -exec chmod 644 {} \;
 
-#Go to the webpage and continue installation
+nano wp-config.php # Edit the wordpress config file
 # The following is needed during the config of wordpress
 # https://api.wordpress.org/secret-key/1.1/salt/
+
+#Go to the webpage and continue installation
+
 
 #OPTIONAL Add 2nd disk 
 dmesg | grep SCSI

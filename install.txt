@@ -8,7 +8,7 @@ systemctl start mariadb
 mysql_secure_installation
 
 apt install software-properties-common apt-transport-https -y
-apt install php8.2 libapache2-mod-php8.2 php8.2-cli php8.2-common php8.2-mbstring php8.2-xmlrpc php8.2-soap php8.2-gd php8.2-xml php8.2-intl php8.2-mysql php8.2-cli php8.2-ldap php8.2-zip php8.2-mcrypt php8.2-curl php8.1-opcache php8.2-readline php8.2-xml php8.2-gd
+apt install php8.1 libapache2-mod-php8.1 php8.1-cli php8.1-common php8.1-mbstring php8.1-xmlrpc php8.1-soap php8.1-gd php8.1-xml php8.1-intl php8.1-mysql php8.1-cli php8.1-ldap php8.1-zip php8.1-curl php8.1-opcache php8.1-readline php8.1-xml php8.1-gd
 systemctl restart apache2 headers
 a2enmod rewrite ssl
 nano /etc/apache2/sites-enabled/000-default.conf

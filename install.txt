@@ -26,10 +26,24 @@ nano /etc/apache2/sites-available/default-ssl.conf
        Require all granted
 </Directory>
 SSLProtocol all -SSLv2 -SSLv3 -TLSv1.1 -TLSv1
-# Add SSL Cipher in one long line
-SSLCipherSuite ALL:+HIGH:!ADH:!EXP:!SSLv2:!SSLv3:!MEDIUM:!LOW:!NULL:!aNULL
-SSLHonorCipherOrder     on
-SSLOptions +StrictRequire
+    SSLEngine on
+    SSLCertificateFile      /path/to/signed_cert_and_intermediate_certs
+    SSLCertificateKeyFile   /path/to/private_key
+
+    # enable HTTP/2, if available
+    Protocols h2 http/1.1
+
+    # HTTP Strict Transport Security (mod_headers is required) (63072000 seconds)
+    Header always set Strict-Transport-Security "max-age=63072000"
+</VirtualHost>
+
+# modern configuration
+SSLProtocol             all -SSLv3 -TLSv1 -TLSv1.1 -TLSv1.2
+SSLHonorCipherOrder     off
+SSLSessionTickets       off
+
+SSLUseStapling On
+SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
 Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
 Header always set X-Frame-Options DENY
 Header always set X-Content-Type-Options nosniff

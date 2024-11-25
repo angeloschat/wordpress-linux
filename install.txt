@@ -82,15 +82,3 @@ nano wp-config.php # Edit the wordpress config file
 
 #Go to the webpage and continue installation
 
-
-#OPTIONAL Add 2nd disk 
-dmesg | grep SCSI
-sudo fdisk /dev/sdc
-n > p > w
-mkfs -t ext4 /dev/sdc1
-mkdir /datadrive
-mount /dev/sdc1 /datadrive
-blkid
-nano /etc/fstab
-#repalce with actual UUID
-UUID=33333333-3b3b-3c3c-3d3d-3e3e3e3e3e3e   /datadrive   ext4   defaults,nofail   1   2

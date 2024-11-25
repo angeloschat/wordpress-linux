@@ -1,0 +1,176 @@
+---
+- name: Setup LAMP stack with WordPress and optional disk
+  hosts: all
+  become: yes
+
+  vars:
+    hostname: "xxxx.xxxx.xx"
+    php_modules:
+      - curl
+      - mbstring
+      - igbinary
+      - imagick
+      - intl
+      - xml
+      - zip
+      - apcu
+      - memcached
+      - opcache
+      - redis
+      - ssh2
+    mysql_root_password: "root_password"
+    wordpress_db_name: "wordpress"
+    wordpress_user: "USERNAME"
+    wordpress_password: "PASSWORD"
+    wordpress_url: "https://wordpress.org/latest.tar.gz"
+    wordpress_dir: "/data/www/html"
+    certbot_cron_job: "0 2 * * * certbot renew >> /var/log/letsencrypt.log"
+    ssl_cert_file: "/path/to/signed_cert_and_intermediate_certs"
+    ssl_key_file: "/path/to/private_key"
+    additional_disk: "/dev/sdc1"
+    additional_mount: "/datadrive"
+
+  tasks:
+    - name: Set hostname
+      hostname:
+        name: "{{ hostname }}"
+
+    - name: Install required packages
+      apt:
+        name:
+          - net-tools
+          - sudo
+          - wget
+          - curl
+          - unzip
+          - bash-completion
+          - software-properties-common
+          - apt-transport-https
+          - apache2
+          - mariadb-server
+          - mariadb-client
+          - php
+          - "php8.1-{{ item }}"
+        state: present
+      with_items: "{{ php_modules }}"
+
+    - name: Enable and start services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      with_items:
+        - apache2
+        - mariadb
+
+    - name: Secure MySQL installation
+      shell: |
+        mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';"
+        mysql -e "DELETE FROM mysql.user WHERE User='';"
+        mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
+        mysql -e "FLUSH PRIVILEGES;"
+
+    - name: Configure Apache modules
+      shell: |
+        a2enmod rewrite ssl
+        systemctl restart apache2
+
+    - name: Update default Apache configuration
+      copy:
+        content: |
+          <Directory /data/www/html>
+              Options Indexes FollowSymLinks MultiViews
+              AllowOverride All
+              Require all granted
+          </Directory>
+        dest: /etc/apache2/sites-enabled/000-default.conf
+
+    - name: Configure SSL
+      copy:
+        content: |
+          <Directory /data/www/html>
+              Options Indexes FollowSymLinks MultiViews
+              AllowOverride All
+              Require all granted
+          </Directory>
+          SSLEngine on
+          SSLCertificateFile {{ ssl_cert_file }}
+          SSLCertificateKeyFile {{ ssl_key_file }}
+          SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1 -TLSv1.2
+          SSLHonorCipherOrder off
+          SSLSessionTickets off
+          SSLUseStapling On
+          SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
+          Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
+          Header always set X-Frame-Options DENY
+          Header always set X-Content-Type-Options nosniff
+        dest: /etc/apache2/sites-available/default-ssl.conf
+      notify: Restart Apache
+
+    - name: Install Certbot
+      apt:
+        name:
+          - certbot
+          - python3-certbot-apache
+        state: present
+
+    - name: Add Certbot renewal to crontab
+      cron:
+        name: "Certbot Renewal"
+        minute: "0"
+        hour: "2"
+        job: "{{ certbot_cron_job }}"
+        state: present
+
+    - name: Configure WordPress database
+      mysql_db:
+        name: "{{ wordpress_db_name }}"
+        state: present
+      mysql_user:
+        name: "{{ wordpress_user }}"
+        password: "{{ wordpress_password }}"
+        priv: "{{ wordpress_db_name }}.*:ALL"
+        host: localhost
+        state: present
+
+    - name: Download and configure WordPress
+      shell: |
+        wget -qO- {{ wordpress_url }} | tar xz
+        rm -rf {{ wordpress_dir }}
+        mv wordpress {{ wordpress_dir }}
+        chown -R www-data:www-data {{ wordpress_dir }}
+        find {{ wordpress_dir }} -type d -exec chmod 755 {} \;
+        find {{ wordpress_dir }} -type f -exec chmod 644 {} \;
+
+    - name: Mount and configure additional disk (optional)
+      block:
+        - name: Partition and format disk
+          shell: |
+            echo -e "n\np\n\n\n\nw" | fdisk /dev/sdc
+            mkfs.ext4 {{ additional_disk }}
+          when: additional_disk is defined
+
+        - name: Create and mount directory
+          file:
+            path: "{{ additional_mount }}"
+            state: directory
+
+        - name: Mount disk
+          mount:
+            path: "{{ additional_mount }}"
+            src: "{{ additional_disk }}"
+            fstype: ext4
+            opts: defaults
+            state: mounted
+
+        - name: Add to fstab
+          lineinfile:
+            path: /etc/fstab
+            line: "UUID={{ lookup('pipe', 'blkid -s UUID -o value ' + additional_disk) }} {{ additional_mount }} ext4 defaults,nofail 1 2"
+          when: additional_disk is defined
+
+  handlers:
+    - name: Restart Apache
+      systemd:
+        name: apache2
+        state: restarted

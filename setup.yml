@@ -50,7 +50,7 @@
           - mariadb-server
           - mariadb-client
           - php
-          - "php8.1-{{ item }}"
+          - "php8.2-{{ item }}"
         state: present
       with_items: "{{ php_modules }}"
 

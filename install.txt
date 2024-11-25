@@ -13,14 +13,14 @@ apt install php8.3-{curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,o
 systemctl restart apache2 headers
 a2enmod rewrite ssl
 nano /etc/apache2/sites-enabled/000-default.conf
-<Directory /data/www/html>
+<Directory /var/www/html>
        Options Indexes FollowSymLinks MultiViews
        AllowOverride All
        Require all granted
 </Directory>
 
 nano /etc/apache2/sites-available/default-ssl.conf
-<Directory /data/www/html>
+<Directory /var/www/html>
        Options Indexes FollowSymLinks MultiViews
        AllowOverride All
        Require all granted
@@ -70,11 +70,11 @@ exit;
 wget https://wordpress.org/latest.tar.gz
 tar xpf latest.tar.gz
 #Delete the default webpage from default root dir only if you want to install wordpress in root.
-rm -rf /data/www/html
+rm -rf /var/www/html
 cp -r wordpress /data/www/html
 chown -R www-data:www-data /data/www/html
-find /data/www/html -type d -exec chmod 755 {} \;
-find /data/www/html -type f -exec chmod 644 {} \;
+find /var/www/html -type d -exec chmod 755 {} \;
+find /var/www/html -type f -exec chmod 644 {} \;
 
 nano wp-config.php # Edit the wordpress config file
 # The following is needed during the config of wordpress

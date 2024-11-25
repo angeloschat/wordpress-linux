@@ -9,7 +9,7 @@ mysql_secure_installation
 
 apt install software-properties-common apt-transport-https -y
 apt install php
-apt install php8.1-{curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2}
+apt install php8.3-{curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2}
 systemctl restart apache2 headers
 a2enmod rewrite ssl
 nano /etc/apache2/sites-enabled/000-default.conf

@@ -1,15 +1,20 @@
 #!/bin/bash
 
+# Exit immediately on any error
+set -e
+
 # Prompt for domain name
 read -p "Enter your domain name (e.g., example.com): " DOMAIN
 
+# Prompt for email address for Let's Encrypt
+read -p "Enter your email address (for Let's Encrypt SSL): " EMAIL
+
 # Variables
-DB_NAME="wordpress"
-DB_USER="wordpress_user"
-DB_PASSWORD="secure_password"
-DB_ROOT_PASSWORD="root_password"
+DB_NAME="wordpress_$(echo $DOMAIN | tr . _)"
+DB_USER="wp_user_$(echo $DOMAIN | tr . _)"
+DB_PASSWORD=$(openssl rand -base64 16) # Generate a random password
+DB_ROOT_PASSWORD="root_password" # Update with your MariaDB root password
 WORDPRESS_DIR="/var/www/$DOMAIN"
-EMAIL="webmaster@$DOMAIN"
 
 # Update system packages
 echo "Updating system packages..."
@@ -17,12 +22,8 @@ apt update && apt upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt install -y apache2 mariadb-server mariadb-client wget curl unzip \
-    software-properties-common apt-transport-https certbot python3-certbot-apache bash-completion
-
-# Install latest PHP
-echo "Installing latest PHP..."
-apt install -y php php-{common,cli,curl,gd,imagick,intl,json,mbstring,mysql,opcache,readline,xml,zip}
+apt install -y apache2 mariadb-server mariadb-client wget curl unzip php php-{cli,curl,gd,imagick,intl,json,mbstring,mysql,opcache,readline,xml,zip} \
+    certbot python3-certbot-apache bash-completion
 
 # Start and enable Apache and MariaDB
 echo "Starting and enabling Apache and MariaDB services..."
@@ -65,11 +66,27 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
         Require all granted
     </Directory>
 
-    ErrorLog \${APACHE_LOG_DIR}/error.log
-    CustomLog \${APACHE_LOG_DIR}/access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/$DOMAIN_error.log
+    CustomLog \${APACHE_LOG_DIR}/$DOMAIN_access.log combined
 </VirtualHost>
 EOL
 
+# Enable Apache configurations
+echo "Enabling Apache configurations..."
+a2ensite $DOMAIN
+a2enmod rewrite headers
+apachectl configtest
+systemctl reload apache2
+
+# Generate Let's Encrypt SSL Certificates
+echo "Generating Let's Encrypt SSL certificates for $DOMAIN..."
+if ! certbot certonly --webroot -w $WORDPRESS_DIR --non-interactive --agree-tos --email $EMAIL -d $DOMAIN -d www.$DOMAIN; then
+    echo "Error: SSL certificate generation failed. Check domain DNS settings and ensure the site is accessible."
+    exit 1
+fi
+
+# Create SSL VirtualHost after successful certificate generation
+echo "Creating SSL VirtualHost for $DOMAIN..."
 cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
 <VirtualHost *:443>
     ServerAdmin $EMAIL
@@ -83,50 +100,38 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
         Require all granted
     </Directory>
 
-    # Enable SSL
     SSLEngine on
     SSLCertificateFile /etc/letsencrypt/live/$DOMAIN/fullchain.pem
     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
 
-    # Modern SSL Protocols
     SSLProtocol TLSv1.2 TLSv1.3
     SSLCipherSuite TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256
     SSLHonorCipherOrder On
     SSLSessionTickets Off
 
-    # Enable HSTS
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-
-    # Enable OCSP Stapling
-    SSLUseStapling On
-    SSLStaplingResponderTimeout 5
-    SSLStaplingReturnResponderErrors Off
-    SSLStaplingCache "shmcb:/var/run/ocsp_stapling(128000)"
-
-    # Security Headers
     Header always set X-Frame-Options DENY
     Header always set X-Content-Type-Options nosniff
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
 
-    ErrorLog \${APACHE_LOG_DIR}/error.log
-    CustomLog \${APACHE_LOG_DIR}/access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/$DOMAIN_error.log
+    CustomLog \${APACHE_LOG_DIR}/$DOMAIN_access.log combined
 </VirtualHost>
 EOL
 
-# Enable Apache configurations
-echo "Enabling Apache configurations..."
-a2ensite $DOMAIN
 a2ensite $DOMAIN-ssl
-a2enmod rewrite ssl headers
+apachectl configtest
+
+# Reload Apache to apply changes
+echo "Reloading Apache..."
 systemctl reload apache2
 
 # Download and configure WordPress
 echo "Downloading and configuring WordPress..."
 wget -q https://wordpress.org/latest.tar.gz -O /tmp/latest.tar.gz
 mkdir -p $WORDPRESS_DIR
-tar -xzf /tmp/latest.tar.gz -C /tmp
-mv /tmp/wordpress/* $WORDPRESS_DIR
+tar -xzf /tmp/latest.tar.gz -C $WORDPRESS_DIR --strip-components=1
 chown -R www-data:www-data $WORDPRESS_DIR
 find $WORDPRESS_DIR -type d -exec chmod 755 {} \;
 find $WORDPRESS_DIR -type f -exec chmod 644 {} \;
@@ -159,16 +164,9 @@ if ( !defined( 'ABSPATH' ) ) {
 require_once ABSPATH . 'wp-settings.php';
 EOL
 
-# Configure Let's Encrypt SSL
-echo "Configuring Let's Encrypt SSL for $DOMAIN..."
-certbot --apache --non-interactive --agree-tos --email $EMAIL -d $DOMAIN -d www.$DOMAIN
+# Add Certbot renewal to cron
+echo "Setting up SSL renewal cron job..."
+(crontab -l 2>/dev/null; echo "0 2 * * * certbot renew --quiet >> /var/log/letsencrypt/renew.log") | crontab -
 
-# Set up automatic SSL renewal
-echo "Adding Certbot renewal cron job..."
-(crontab -l 2>/dev/null; echo "0 2 * * * certbot renew --quiet >> /var/log/letsencrypt.log") | crontab -
+echo "Installation completed! Visit https://$DOMAIN to complete WordPress setup."
 
-# Reload Apache to apply changes
-echo "Reloading Apache..."
-systemctl reload apache2
-
-echo "Installation completed! Visit https://$DOMAIN to finish WordPress setup."

@@ -1,6 +1,6 @@
 **Install Wordpress on Debian or Ubuntu in few easy steps.**
 
-Updated on February 2024
+Updated on July 2025
 
 Keep it simple. No need for funcy plugins or many services. 
 For most cases a virtual machine with 1vCPU and 1GB RAM is enough.

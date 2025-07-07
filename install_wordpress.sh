@@ -140,14 +140,14 @@ define( 'DB_HOST', 'localhost' );
 define( 'DB_CHARSET', 'utf8mb4' );
 define( 'DB_COLLATE', '' );
 
-define('AUTH_KEY',         '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
-define('SECURE_AUTH_KEY',  '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
-define('LOGGED_IN_KEY',    '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
-define('NONCE_KEY',        '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
-define('AUTH_SALT',        '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
-define('SECURE_AUTH_SALT', '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
-define('LOGGED_IN_SALT',   '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
-define('NONCE_SALT',       '$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)');
+define('AUTH_KEY',         $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+define('SECURE_AUTH_KEY',  $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+define('LOGGED_IN_KEY',    $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+define('NONCE_KEY',        $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+define('AUTH_SALT',        $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+define('SECURE_AUTH_SALT', $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+define('LOGGED_IN_SALT',   $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+define('NONCE_SALT',       $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
 
 \$table_prefix = 'wp_';
 define( 'WP_DEBUG', false );

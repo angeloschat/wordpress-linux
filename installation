@@ -1,0 +1,173 @@
+#!/bin/bash
+# WordPress Installation Script for Ubuntu/Debian
+# All commands should be run as root (sudo su)
+
+# Set hostname (replace xxxx.xxxx.xx with your actual hostname)
+hostnamectl set-hostname xxxx.xxxx.xx
+
+# Install basic utilities
+apt -y install net-tools sudo wget curl unzip bash-completion
+
+# Install Apache2 web server
+apt -y install apache2
+
+# Install MariaDB
+apt -y install mariadb-server mariadb-client
+systemctl start mariadb
+mysql_secure_installation
+
+# Install PHP and required extensions
+apt -y install software-properties-common apt-transport-https
+apt -y install php
+apt -y install php8.3-curl php8.3-mbstring php8.3-igbinary php8.3-imagick php8.3-intl php8.3-xml php8.3-zip php8.3-apcu php8.3-memcached php8.3-opcache php8.3-redis php8.3-ssh2 php8.3-mysqli
+
+# Restart Apache and enable required modules
+systemctl restart apache2
+a2enmod rewrite ssl headers
+
+# Configure Apache - Default HTTP site
+echo "Configuring Apache default site..."
+cat >> /etc/apache2/sites-enabled/000-default.conf << 'EOF'
+
+<Directory /var/www/html>
+    Options Indexes FollowSymLinks MultiViews
+    AllowOverride All
+    Require all granted
+</Directory>
+EOF
+
+# Configure Apache - Default SSL site template (will be configured by certbot)
+echo "Configuring Apache SSL site template..."
+cat > /etc/apache2/sites-available/default-ssl.conf << 'EOF'
+<IfModule mod_ssl.c>
+    <VirtualHost _default_:443>
+        ServerAdmin webmaster@localhost
+        DocumentRoot /var/www/html
+
+        <Directory /var/www/html>
+            Options Indexes FollowSymLinks MultiViews
+            AllowOverride All
+            Require all granted
+        </Directory>
+
+        # SSL Configuration will be added by certbot
+        SSLEngine on
+
+        # Enable HTTP/2
+        Protocols h2 http/1.1
+
+        # Modern SSL/TLS Configuration
+        SSLProtocol             all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+        SSLHonorCipherOrder     off
+        SSLSessionTickets       off
+
+        # OCSP Stapling
+        SSLUseStapling On
+        SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
+
+        # Security Headers
+        Header always set X-Frame-Options DENY
+        Header always set X-Content-Type-Options nosniff
+
+        ErrorLog ${APACHE_LOG_DIR}/error.log
+        CustomLog ${APACHE_LOG_DIR}/access.log combined
+    </VirtualHost>
+</IfModule>
+EOF
+
+# Don't enable SSL site yet - certbot will do this
+echo "Note: SSL site will be enabled after running certbot"
+
+# Test Apache configuration
+apache2ctl -t
+
+# Restart services
+systemctl restart apache2.service mariadb.service
+
+# Enable services to start on boot
+systemctl enable apache2.service mariadb.service
+
+# Install Certbot for SSL certificates
+apt-get -y install certbot python3-certbot-apache
+
+# Note: Run certbot after DNS is configured
+# certbot --apache -d yourdomain.com -d www.yourdomain.com
+
+# Setup automatic certificate renewal
+(crontab -l 2>/dev/null; echo "0 2 * * * certbot renew --quiet >> /var/log/letsencrypt.log") | crontab -
+
+echo "========================================"
+echo "Creating WordPress Database"
+echo "========================================"
+echo "Please enter the following information:"
+read -p "Database name (default: wordpress): " DB_NAME
+DB_NAME=${DB_NAME:-wordpress}
+read -p "Database username: " DB_USER
+read -sp "Database password: " DB_PASS
+echo
+
+# Create WordPress database and user
+mysql -u root -p << MYSQL_SCRIPT
+CREATE DATABASE IF NOT EXISTS ${DB_NAME};
+CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
+GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+MYSQL_SCRIPT
+
+echo "========================================"
+echo "Installing WordPress"
+echo "========================================"
+
+# Download and extract WordPress
+cd /tmp
+wget https://wordpress.org/latest.tar.gz
+tar xpf latest.tar.gz
+
+# Backup existing html directory if it exists
+if [ -d "/var/www/html" ]; then
+    mv /var/www/html /var/www/html.backup.$(date +%Y%m%d_%H%M%S)
+fi
+
+# Move WordPress to web root
+mv wordpress /var/www/html
+
+# Set proper ownership and permissions
+chown -R www-data:www-data /var/www/html
+find /var/www/html -type d -exec chmod 755 {} \;
+find /var/www/html -type f -exec chmod 644 {} \;
+
+# Create wp-config.php from sample
+cd /var/www/html
+cp wp-config-sample.php wp-config.php
+
+# Update database credentials in wp-config.php
+sed -i "s/database_name_here/${DB_NAME}/" wp-config.php
+sed -i "s/username_here/${DB_USER}/" wp-config.php
+sed -i "s/password_here/${DB_PASS}/" wp-config.php
+
+# Generate and add security keys
+SALT=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
+STRING='put your unique phrase here'
+printf '%s\n' "g/$STRING/d" a "$SALT" . w | ed -s wp-config.php
+
+chown www-data:www-data wp-config.php
+chmod 640 wp-config.php
+
+echo "========================================"
+echo "Installation Complete!"
+echo "========================================"
+echo "Database Name: ${DB_NAME}"
+echo "Database User: ${DB_USER}"
+echo ""
+echo "Next steps:"
+echo "1. Configure your DNS to point to this server"
+echo "2. Run: certbot --apache -d yourdomain.com -d www.yourdomain.com"
+echo "3. After certbot completes, run the following to add HSTS header:"
+echo "   sed -i '/<\/VirtualHost>/i \        Header always set Strict-Transport-Security \"max-age=63072000; includeSubdomains; preload\"' /etc/apache2/sites-available/default-ssl-le-ssl.conf"
+echo "   systemctl reload apache2"
+echo "4. Visit your domain in a web browser to complete WordPress setup"
+echo ""
+echo "Note: Certbot will automatically configure SSL certificates and enable the SSL site."
+echo "WordPress security keys have been automatically generated."
+echo "========================================"

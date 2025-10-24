@@ -1,84 +1,133 @@
-#all commands issued as root (sudo su)
+# WordPress Linux Installation Script - Updated 2025
+# Run as root (sudo su)
 
+# Initial Setup
 hostnamectl set-hostname xxxx.xxxx.xx
-apt -y install net-tools sudo wget curl unzip bash-completion
+apt update && apt upgrade -y
+apt -y install net-tools sudo wget curl unzip bash-completion git
+
+# Web Server & Database
 apt -y install apache2
 apt -y install mariadb-server mariadb-client
 systemctl start mariadb
 mysql_secure_installation
 
+# PHP Installation (8.3 with latest extensions)
 apt install software-properties-common apt-transport-https -y
-apt install php
-apt install php8.3-{curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2,mysqli}
-systemctl restart apache2 headers
-a2enmod rewrite ssl
+apt install -y php php8.3-{cli,common,curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2,mysqli,fpm}
+
+# Apache Modules
+a2enmod rewrite ssl headers http2
+systemctl restart apache2
+
+# HTTP Configuration
 nano /etc/apache2/sites-enabled/000-default.conf
-<Directory /var/www/html>
-       Options Indexes FollowSymLinks MultiViews
-       AllowOverride All
-       Require all granted
-</Directory>
+# Add the following inside <VirtualHost *:80>:
+# <Directory /var/www/html>
+#        Options Indexes FollowSymLinks MultiViews
+#        AllowOverride All
+#        Require all granted
+# </Directory>
 
+# HTTPS Configuration
 nano /etc/apache2/sites-available/default-ssl.conf
-<Directory /var/www/html>
-       Options Indexes FollowSymLinks MultiViews
-       AllowOverride All
-       Require all granted
-</Directory>
-SSLProtocol all -SSLv2 -SSLv3 -TLSv1.1 -TLSv1
-    SSLEngine on
-    SSLCertificateFile      /path/to/signed_cert_and_intermediate_certs
-    SSLCertificateKeyFile   /path/to/private_key
+# Add the following inside <VirtualHost *:443>:
+# <Directory /var/www/html>
+#        Options Indexes FollowSymLinks MultiViews
+#        AllowOverride All
+#        Require all granted
+# </Directory>
+# SSLEngine on
+# SSLCertificateFile      /path/to/signed_cert_and_intermediate_certs
+# SSLCertificateKeyFile   /path/to/private_key
+# Protocols h2 http/1.1
+# Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
+# Header always set X-Frame-Options DENY
+# Header always set X-Content-Type-Options nosniff
+# Header always set Referrer-Policy "strict-origin-when-cross-origin"
 
-    # enable HTTP/2, if available
-    Protocols h2 http/1.1
+# Modern SSL/TLS Configuration
+# Add to /etc/apache2/mods-available/ssl.conf:
+# SSLProtocol             all -SSLv3 -TLSv1 -TLSv1.1
+# SSLHonorCipherOrder     off
+# SSLSessionTickets       off
+# SSLUseStapling On
+# SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
 
-    # HTTP Strict Transport Security (mod_headers is required) (63072000 seconds)
-    Header always set Strict-Transport-Security "max-age=63072000"
-</VirtualHost>
+# Enable SSL site
+a2ensite default-ssl.conf
 
-# modern configuration
-SSLProtocol             all -SSLv3 -TLSv1 -TLSv1.1 -TLSv1.2
-SSLHonorCipherOrder     off
-SSLSessionTickets       off
-
-SSLUseStapling On
-SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
-Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
-Header always set X-Frame-Options DENY
-Header always set X-Content-Type-Options nosniff
-
-apache2ctl –t
+# Test and restart
+apache2ctl -t
 systemctl restart apache2.service mariadb.service
 systemctl enable apache2.service mariadb.service
 
-
-apt-get -y install certbot
-apt install certbot python3-certbot-apache
+# SSL Certificate Setup (Let's Encrypt)
+apt-get -y install certbot python3-certbot-apache
 certbot --authenticator webroot --installer apache
-crontab -e
-0 2 * * * certbot renew >> /var/log/letsencrypt.log
 
-#Wordpress installation
+# Auto-renewal via cron
+crontab -e
+# Add: 0 2 * * * certbot renew --quiet >> /var/log/letsencrypt.log
+
+# WordPress Installation
 mysql -u root -p
-#Change usernameand password. set database name
-CREATE USER 'USERNAME'@'localhost' IDENTIFIED BY 'PASSWORD';
-CREATE DATABASE wordpress;
-GRANT ALL ON `press`.* TO `USER`@`localhost`;
-FLUSH PRIVILEGES;
-exit;
+# Execute in MySQL:
+# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'secure_password_here';
+# CREATE DATABASE wordpress;
+# GRANT ALL ON `wordpress`.* TO `wpuser`@`localhost`;
+# FLUSH PRIVILEGES;
+# exit;
+
+# Download and extract WordPress
+cd /tmp
 wget https://wordpress.org/latest.tar.gz
-tar xpf latest.tar.gz
-#Delete the default webpage from default root dir only if you want to install wordpress in root.
+tar xpzf latest.tar.gz
+
+# Setup WordPress directory
 rm -rf /var/www/html
-cp -r wordpress /data/www/html
-chown -R www-data:www-data /data/www/html
+cp -r wordpress /var/www/html
+chown -R www-data:www-data /var/www/html
 find /var/www/html -type d -exec chmod 755 {} \;
 find /var/www/html -type f -exec chmod 644 {} \;
 
-nano wp-config.php # Edit the wordpress config file
-# The following is needed during the config of wordpress
+# Configure WordPress
+cd /var/www/html
+cp wp-config-sample.php wp-config.php
+nano wp-config.php
+# Update the following with your database credentials:
+# define('DB_NAME', 'wordpress');
+# define('DB_USER', 'wpuser');
+# define('DB_PASSWORD', 'secure_password_here');
+# define('DB_HOST', 'localhost');
+
+# Generate security keys and salts (uncomment and replace in wp-config.php):
 # https://api.wordpress.org/secret-key/1.1/salt/
 
-#Go to the webpage and continue installation
+# Set proper permissions for security
+chmod 644 /var/www/html/wp-config.php
+chmod 600 /var/www/html/.htaccess
 
+# Optimize PHP for WordPress
+nano /etc/php/8.3/apache2/php.ini
+# Recommended settings:
+# memory_limit = 256M
+# upload_max_filesize = 64M
+# post_max_size = 64M
+# max_execution_time = 300
+# opcache.enable = 1
+# opcache.memory_consumption = 128
+
+# Restart services
+systemctl restart apache2.service php8.3-fpm.service
+
+# Complete WordPress setup
+# Navigate to https://your-domain.com in your browser and complete the installation wizard
+
+# Post-Installation Security
+# 1. Remove default Apache index page (if not already done)
+# 2. Set up automatic backups
+# 3. Install WordPress security plugins (Wordfence, Sucuri, etc.)
+# 4. Disable XML-RPC if not needed
+# 5. Keep WordPress, themes, and plugins updated
+# 6. Consider setting up a WAF (Web Application Firewall)

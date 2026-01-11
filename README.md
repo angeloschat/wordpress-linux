@@ -10,7 +10,6 @@ Some **recommended** plugins
 - Akismet antispam https://wordpress.org/plugins/akismet/ install it even if comments are disabled.
 - Disable comments https://wordpress.org/plugins/disable-comments/ (install it if you do not like criticism like me)
 - WP Fastest cache  https://wordpress.org/plugins/wp-fastest-cache/ In most cases the free version is enough.
-  But if you want to get serious I strongly recommend the paid version its worth every penny.  https://www.wpfastestcache.com/
 - WP mail SMTP https://wordpress.org/plugins/wp-mail-smtp/ No need to install mail server on your linux box.
 **Optional** plugins
 - Google XML Sitemaps https://wordpress.org/plugins/google-sitemap-generator/

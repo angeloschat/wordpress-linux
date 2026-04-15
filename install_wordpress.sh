@@ -1,16 +1,24 @@
 #!/bin/bash
 
+set -e
+
 # Prompt for domain name
 read -p "Enter your domain name (e.g., example.com): " DOMAIN
+[[ -z "$DOMAIN" ]] && { echo "Error: Domain name cannot be empty."; exit 1; }
 
 # Prompt for email address for Let's Encrypt
 read -p "Enter your email address (for Let's Encrypt SSL): " EMAIL
+[[ -z "$EMAIL" ]] && { echo "Error: Email address cannot be empty."; exit 1; }
+
+# Prompt for MariaDB root password
+read -sp "Enter your MariaDB root password: " DB_ROOT_PASSWORD
+echo
+[[ -z "$DB_ROOT_PASSWORD" ]] && { echo "Error: MariaDB root password cannot be empty."; exit 1; }
 
 # Variables
 DB_NAME="wordpress_$(echo $DOMAIN | tr . _)"
 DB_USER="wp_user_$(echo $DOMAIN | tr . _)"
-DB_PASSWORD=$(openssl rand -base64 16) # Generate a random password
-DB_ROOT_PASSWORD="root_password" # Update with your MariaDB root password
+DB_PASSWORD=$(openssl rand -base64 16)
 WORDPRESS_DIR="/var/www/$DOMAIN"
 
 # Update system packages
@@ -63,8 +71,8 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
         Require all granted
     </Directory>
 
-    ErrorLog \${APACHE_LOG_DIR}/$DOMAIN_error.log
-    CustomLog \${APACHE_LOG_DIR}/$DOMAIN_access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
 </VirtualHost>
 EOL
 
@@ -107,8 +115,8 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
 
-    ErrorLog \${APACHE_LOG_DIR}/$DOMAIN_error.log
-    CustomLog \${APACHE_LOG_DIR}/$DOMAIN_access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
 </VirtualHost>
 EOL
 
@@ -123,11 +131,14 @@ systemctl reload apache2
 echo "Downloading and configuring WordPress..."
 wget -q https://wordpress.org/latest.tar.gz -O /tmp/latest.tar.gz
 mkdir -p $WORDPRESS_DIR
-tar -xzf /tmp/latest.tar.gz -C /tmp
-mv /tmp/wordpress/* $WORDPRESS_DIR
+tar -xzf /tmp/latest.tar.gz -C $WORDPRESS_DIR --strip-components=1
 chown -R www-data:www-data $WORDPRESS_DIR
 find $WORDPRESS_DIR -type d -exec chmod 755 {} \;
 find $WORDPRESS_DIR -type f -exec chmod 644 {} \;
+
+# Fetch WordPress secret keys
+echo "Fetching WordPress secret keys..."
+WP_SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
 
 # Create wp-config.php
 echo "Creating WordPress configuration file..."
@@ -140,14 +151,7 @@ define( 'DB_HOST', 'localhost' );
 define( 'DB_CHARSET', 'utf8mb4' );
 define( 'DB_COLLATE', '' );
 
-define('AUTH_KEY',         $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
-define('SECURE_AUTH_KEY',  $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
-define('LOGGED_IN_KEY',    $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
-define('NONCE_KEY',        $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
-define('AUTH_SALT',        $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
-define('SECURE_AUTH_SALT', $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
-define('LOGGED_IN_SALT',   $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
-define('NONCE_SALT',       $(curl -s https://api.wordpress.org/secret-key/1.1/salt/));
+$WP_SALTS
 
 \$table_prefix = 'wp_';
 define( 'WP_DEBUG', false );

@@ -1,0 +1,186 @@
+# WordPress Linux Installation Guide (v2) - Updated 2026
+# Target: Debian/Ubuntu with Apache + PHP-FPM + MariaDB + Let's Encrypt
+# Run commands with sudo (do not stay logged in as root for the full session).
+
+set -euo pipefail
+
+#############################################
+# 0) REQUIRED VARIABLES (edit these first)
+#############################################
+DOMAIN="example.com"
+EMAIL="admin@example.com"
+SITE_ROOT="/var/www/${DOMAIN}/public"
+DB_NAME="wordpress"
+DB_USER="wpuser"
+DB_PASS="change_this_to_a_strong_password"
+
+#############################################
+# 1) BASE SYSTEM SETUP
+#############################################
+sudo hostnamectl set-hostname "${DOMAIN}"
+sudo apt update
+sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y
+sudo apt install -y \
+  ca-certificates curl wget unzip git bash-completion net-tools rsync \
+  software-properties-common apt-transport-https
+
+#############################################
+# 2) INSTALL APACHE, MARIADB, PHP 8.3
+#############################################
+sudo apt install -y apache2 mariadb-server mariadb-client
+sudo apt install -y \
+  php8.3-fpm php8.3-cli php8.3-common php8.3-curl php8.3-mbstring \
+  php8.3-imagick php8.3-intl php8.3-xml php8.3-zip php8.3-opcache \
+  php8.3-redis php8.3-mysql php8.3-bcmath
+
+sudo systemctl enable --now apache2 mariadb php8.3-fpm
+
+#############################################
+# 3) MARIADB HARDENING + WORDPRESS DATABASE
+#############################################
+# Run interactive hardening (recommended):
+sudo mysql_secure_installation
+
+# Create WordPress DB + user (safe to re-run).
+sudo mysql <<SQL
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+
+#############################################
+# 4) APACHE MODULES + PHP-FPM INTEGRATION
+#############################################
+sudo a2enmod rewrite ssl headers http2 proxy_fcgi setenvif
+sudo a2enconf php8.3-fpm
+
+# Create dedicated site directories.
+sudo mkdir -p "${SITE_ROOT}"
+sudo chown -R www-data:www-data "/var/www/${DOMAIN}"
+
+# Create HTTP vhost.
+sudo tee "/etc/apache2/sites-available/${DOMAIN}.conf" >/dev/null <<APACHE_HTTP
+<VirtualHost *:80>
+    ServerName ${DOMAIN}
+    ServerAlias www.${DOMAIN}
+    DocumentRoot ${SITE_ROOT}
+
+    <Directory ${SITE_ROOT}>
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog \\${APACHE_LOG_DIR}/${DOMAIN}_error.log
+    CustomLog \\${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
+</VirtualHost>
+APACHE_HTTP
+
+sudo a2dissite 000-default.conf || true
+sudo a2ensite "${DOMAIN}.conf"
+sudo apache2ctl -t
+sudo systemctl reload apache2
+
+#############################################
+# 5) INSTALL WORDPRESS
+#############################################
+cd /tmp
+wget -q https://wordpress.org/latest.tar.gz
+rm -rf /tmp/wordpress
+mkdir -p /tmp/wordpress
+
+tar -xzf latest.tar.gz -C /tmp
+sudo rsync -a --delete /tmp/wordpress/ "${SITE_ROOT}/"
+
+sudo chown -R www-data:www-data "/var/www/${DOMAIN}"
+sudo find "${SITE_ROOT}" -type d -exec chmod 755 {} \;
+sudo find "${SITE_ROOT}" -type f -exec chmod 644 {} \;
+
+# Configure wp-config.php
+cd "${SITE_ROOT}"
+if [ ! -f wp-config.php ]; then
+  sudo cp wp-config-sample.php wp-config.php
+fi
+
+sudo sed -i "s/database_name_here/${DB_NAME}/" wp-config.php
+sudo sed -i "s/username_here/${DB_USER}/" wp-config.php
+sudo sed -i "s/password_here/${DB_PASS}/" wp-config.php
+# Add strong salts automatically.
+SALT="$(curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/)"
+sudo awk -v salts="$SALT" '
+  BEGIN{added=0}
+  /AUTH_KEY|SECURE_AUTH_KEY|LOGGED_IN_KEY|NONCE_KEY|AUTH_SALT|SECURE_AUTH_SALT|LOGGED_IN_SALT|NONCE_SALT/ && added==0 {
+    print salts
+    added=1
+    next
+  }
+  !/AUTH_KEY|SECURE_AUTH_KEY|LOGGED_IN_KEY|NONCE_KEY|AUTH_SALT|SECURE_AUTH_SALT|LOGGED_IN_SALT|NONCE_SALT/ {print}
+' wp-config.php | sudo tee /tmp/wp-config.php.new >/dev/null
+sudo mv /tmp/wp-config.php.new wp-config.php
+
+sudo chmod 640 wp-config.php
+
+#############################################
+# 6) TLS CERTIFICATE (LET'S ENCRYPT)
+#############################################
+sudo apt install -y certbot python3-certbot-apache
+sudo certbot --apache \
+  --non-interactive \
+  --agree-tos \
+  --email "${EMAIL}" \
+  -d "${DOMAIN}" -d "www.${DOMAIN}" \
+  --redirect
+
+# Confirm certbot auto-renew timer.
+sudo systemctl enable --now certbot.timer
+sudo systemctl list-timers --all | grep certbot || true
+
+#############################################
+# 7) APACHE SECURITY HEADERS + TLS TUNING
+#############################################
+# Apply safe defaults in SSL vhost if needed.
+# NOTE: certbot modifies vhost files automatically; validate after edits.
+
+sudo tee /etc/apache2/conf-available/security-headers.conf >/dev/null <<'HEADERS'
+Header always set X-Frame-Options "SAMEORIGIN"
+Header always set X-Content-Type-Options "nosniff"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+HEADERS
+
+sudo a2enconf security-headers
+sudo apache2ctl -t
+sudo systemctl reload apache2
+
+#############################################
+# 8) PHP TUNING FOR WORDPRESS
+#############################################
+PHP_INI="/etc/php/8.3/fpm/php.ini"
+sudo sed -i 's/^memory_limit = .*/memory_limit = 256M/' "$PHP_INI"
+sudo sed -i 's/^upload_max_filesize = .*/upload_max_filesize = 64M/' "$PHP_INI"
+sudo sed -i 's/^post_max_size = .*/post_max_size = 64M/' "$PHP_INI"
+sudo sed -i 's/^max_execution_time = .*/max_execution_time = 300/' "$PHP_INI"
+sudo sed -i 's/^;*opcache.enable=.*/opcache.enable=1/' "$PHP_INI"
+sudo sed -i 's/^;*opcache.memory_consumption=.*/opcache.memory_consumption=128/' "$PHP_INI"
+
+sudo systemctl restart php8.3-fpm apache2
+
+#############################################
+# 9) FINAL CHECKS
+#############################################
+sudo apache2ctl -t
+sudo systemctl --no-pager --full status apache2 mariadb php8.3-fpm | sed -n '1,120p'
+
+echo "Open https://${DOMAIN} to finish the WordPress web installer."
+
+#############################################
+# 10) POST-INSTALL SECURITY (MANUAL CHECKLIST)
+#############################################
+# - Configure backups (database + files, with restore testing).
+# - Keep OS and WordPress core/themes/plugins patched.
+# - Limit wp-admin access (WAF, VPN, or IP allowlist where practical).
+# - Disable XML-RPC if not required.
+# - Add fail2ban / rate limiting.
+# - Install a trusted security plugin and enable MFA for admins.

@@ -12,13 +12,22 @@ apt -y install mariadb-server mariadb-client
 systemctl start mariadb
 mysql_secure_installation
 
-# PHP Installation (8.3 with latest extensions)
+# PHP 8.3 + FPM Installation
 apt install software-properties-common apt-transport-https -y
-apt install -y php php8.3-{cli,common,curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2,mysqli,fpm}
+apt install -y php8.3 php8.3-{cli,common,curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2,mysqli,fpm}
 
-# Apache Modules
-a2enmod rewrite ssl headers http2
+# Switch Apache to mpm_event and wire up PHP-FPM
+a2dismod mpm_prefork php8.3
+a2enmod mpm_event proxy_fcgi setenvif rewrite ssl headers http2
+a2enconf php8.3-fpm
+systemctl enable php8.3-fpm
+systemctl start php8.3-fpm
 systemctl restart apache2
+
+# Firewall
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
 
 # HTTP Configuration
 nano /etc/apache2/sites-enabled/000-default.conf
@@ -64,7 +73,7 @@ systemctl enable apache2.service mariadb.service
 
 # SSL Certificate Setup (Let's Encrypt)
 apt-get -y install certbot python3-certbot-apache
-certbot --authenticator webroot --installer apache
+certbot --authenticator webroot --webroot-path /var/www/html --installer apache
 
 # Auto-renewal via cron
 crontab -e
@@ -73,20 +82,17 @@ crontab -e
 # WordPress Installation
 mysql -u root -p
 # Execute in MySQL:
-# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'secure_password_here';
+# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'CHANGE_THIS_PASSWORD';  # Replace before running!
 # CREATE DATABASE wordpress;
 # GRANT ALL ON `wordpress`.* TO `wpuser`@`localhost`;
 # FLUSH PRIVILEGES;
 # exit;
 
 # Download and extract WordPress
-cd /tmp
-wget https://wordpress.org/latest.tar.gz
-tar xpzf latest.tar.gz
-
-# Setup WordPress directory
-rm -rf /var/www/html
-cp -r wordpress /var/www/html
+wget -q https://wordpress.org/latest.tar.gz -O /tmp/latest.tar.gz
+mkdir -p /var/www/html
+tar -xzf /tmp/latest.tar.gz -C /var/www/html --strip-components=1
+rm /tmp/latest.tar.gz
 chown -R www-data:www-data /var/www/html
 find /var/www/html -type d -exec chmod 755 {} \;
 find /var/www/html -type f -exec chmod 644 {} \;
@@ -98,7 +104,7 @@ nano wp-config.php
 # Update the following with your database credentials:
 # define('DB_NAME', 'wordpress');
 # define('DB_USER', 'wpuser');
-# define('DB_PASSWORD', 'secure_password_here');
+# define('DB_PASSWORD', 'CHANGE_THIS_PASSWORD');
 # define('DB_HOST', 'localhost');
 
 # Generate security keys and salts (uncomment and replace in wp-config.php):
@@ -106,10 +112,9 @@ nano wp-config.php
 
 # Set proper permissions for security
 chmod 644 /var/www/html/wp-config.php
-chmod 600 /var/www/html/.htaccess
 
 # Optimize PHP for WordPress
-nano /etc/php/8.3/apache2/php.ini
+nano /etc/php/8.3/fpm/php.ini
 # Recommended settings:
 # memory_limit = 256M
 # upload_max_filesize = 64M
@@ -123,6 +128,9 @@ systemctl restart apache2.service php8.3-fpm.service
 
 # Complete WordPress setup
 # Navigate to https://your-domain.com in your browser and complete the installation wizard
+
+# After WordPress setup wizard completes, secure .htaccess:
+# chmod 644 /var/www/html/.htaccess
 
 # Post-Installation Security
 # 1. Remove default Apache index page (if not already done)

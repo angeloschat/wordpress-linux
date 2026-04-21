@@ -234,6 +234,11 @@ sudo apache2ctl -t
 sudo systemctl --no-pager --full status apache2 mariadb php8.3-fpm redis-server | sed -n '1,160p'
 sudo free -h
 sudo swapon --show
+#############################################
+# 9) FINAL CHECKS
+#############################################
+sudo apache2ctl -t
+sudo systemctl --no-pager --full status apache2 mariadb php8.3-fpm | sed -n '1,120p'
 
 echo "Open https://${DOMAIN} to finish the WordPress web installer."
 
@@ -244,6 +249,9 @@ echo "Open https://${DOMAIN} to finish the WordPress web installer."
 # - Add uptime and resource monitoring (Netdata, Uptime Kuma, or cloud monitor).
 # - Enable a CDN + edge WAF (Cloudflare/Sucuri) for DDoS and bot mitigation.
 # - Use full-page caching (plugin + optional Redis object cache).
+# 10) POST-INSTALL SECURITY (MANUAL CHECKLIST)
+#############################################
+# - Configure backups (database + files, with restore testing).
 # - Keep OS and WordPress core/themes/plugins patched.
 # - Limit wp-admin access (WAF, VPN, or IP allowlist where practical).
 # - Disable XML-RPC if not required.

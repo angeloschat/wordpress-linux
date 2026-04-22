@@ -25,7 +25,7 @@ SITE_ROOT="/var/www/html/$DOMAIN"
 echo "Creating site directory..."
 mkdir -p $SITE_ROOT
 
-# Create HTTP VirtualHost
+# Create HTTP VirtualHost — redirects to HTTPS, exempts ACME challenges
 echo "Creating Apache configuration for $DOMAIN..."
 cat > /etc/apache2/sites-available/$DOMAIN.conf <<EOL
 <VirtualHost *:80>
@@ -34,11 +34,9 @@ cat > /etc/apache2/sites-available/$DOMAIN.conf <<EOL
     ServerAlias www.$DOMAIN
     DocumentRoot $SITE_ROOT
 
-    <Directory $SITE_ROOT>
-        Options FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
     ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
     CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
@@ -77,10 +75,12 @@ cat > /etc/apache2/sites-available/$DOMAIN-ssl.conf <<EOL
     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
     Protocols h2 http/1.1
 
-    SSLProtocol TLSv1.2 TLSv1.3
-    SSLCipherSuite TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256
-    SSLHonorCipherOrder On
-    SSLSessionTickets Off
+    SSLProtocol             -all +TLSv1.3 +TLSv1.2
+    SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305
+    SSLHonorCipherOrder     on
+    SSLSessionTickets       off
+    SSLCompression          off
+    SSLUseStapling          on
 
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
     Header always set X-Frame-Options DENY

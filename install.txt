@@ -36,7 +36,7 @@ ufw enable
 # Create site directory
 mkdir -p $SITE_ROOT
 
-# HTTP VirtualHost
+# HTTP VirtualHost — redirects all traffic to HTTPS, exempting ACME challenges
 cat > /etc/apache2/sites-available/$DOMAIN.conf <<EOL
 <VirtualHost *:80>
     ServerAdmin admin@$DOMAIN
@@ -44,11 +44,9 @@ cat > /etc/apache2/sites-available/$DOMAIN.conf <<EOL
     ServerAlias www.$DOMAIN
     DocumentRoot $SITE_ROOT
 
-    <Directory $SITE_ROOT>
-        Options FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
     ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
     CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
@@ -74,11 +72,12 @@ cat > /etc/apache2/sites-available/$DOMAIN-ssl.conf <<EOL
     SSLCertificateKeyFile   /etc/letsencrypt/live/$DOMAIN/privkey.pem
     Protocols h2 http/1.1
 
-    SSLProtocol             all -SSLv3 -TLSv1 -TLSv1.1
-    SSLHonorCipherOrder     off
+    SSLProtocol             -all +TLSv1.3 +TLSv1.2
+    SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305
+    SSLHonorCipherOrder     on
     SSLSessionTickets       off
-    SSLUseStapling On
-    SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
+    SSLCompression          off
+    SSLUseStapling          on
 
     Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
     Header always set X-Frame-Options DENY
@@ -89,6 +88,10 @@ cat > /etc/apache2/sites-available/$DOMAIN-ssl.conf <<EOL
     CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
 </VirtualHost>
 EOL
+
+# Add OCSP stapling cache globally (once per server, not per vhost):
+# Edit /etc/apache2/mods-available/ssl.conf and add:
+# SSLStaplingCache "shmcb:/var/run/ocsp_stapling(131072)"
 
 # Enable site and test
 a2ensite $DOMAIN.conf $DOMAIN-ssl.conf

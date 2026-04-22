@@ -24,3 +24,13 @@ Make you webserver installation more secure. Check out this nice tool **https://
 
 
 
+
+## Add more sites after installv2
+
+Use the helper script to provision a new WordPress vhost after the base server is already configured:
+
+```bash
+sudo ./add_site_after_installv2.sh domain.tld db_name db_user db_pass admin@email.tld
+```
+
+This creates the site in `/var/www/html/domain.tld`, configures Apache + MariaDB + WordPress, enforces HTTP->HTTPS redirect, and enables a strict TLS configuration with Let's Encrypt certificates.

@@ -6,110 +6,140 @@ hostnamectl set-hostname xxxx.xxxx.xx
 apt update && apt upgrade -y
 apt -y install net-tools sudo wget curl unzip bash-completion git
 
+# Set your domain — all paths below use this variable
+DOMAIN=example.com
+SITE_ROOT=/var/www/html/$DOMAIN
+
 # Web Server & Database
 apt -y install apache2
 apt -y install mariadb-server mariadb-client
 systemctl start mariadb
 mysql_secure_installation
 
-# PHP Installation (8.3 with latest extensions)
+# PHP 8.3 + FPM Installation
 apt install software-properties-common apt-transport-https -y
-apt install -y php php8.3-{cli,common,curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2,mysqli,fpm}
+apt install -y php8.3 php8.3-{cli,common,curl,mbstring,igbinary,imagick,intl,xml,zip,apcu,memcached,opcache,redis,ssh2,mysqli,fpm}
 
-# Apache Modules
-a2enmod rewrite ssl headers http2
+# Switch Apache to mpm_event and wire up PHP-FPM
+a2dismod mpm_prefork php8.3
+a2enmod mpm_event proxy_fcgi setenvif rewrite ssl headers http2
+a2enconf php8.3-fpm
+systemctl enable php8.3-fpm
+systemctl start php8.3-fpm
 systemctl restart apache2
 
-# HTTP Configuration
-nano /etc/apache2/sites-enabled/000-default.conf
-# Add the following inside <VirtualHost *:80>:
-# <Directory /var/www/html>
-#        Options Indexes FollowSymLinks MultiViews
-#        AllowOverride All
-#        Require all granted
-# </Directory>
+# Firewall
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
 
-# HTTPS Configuration
-nano /etc/apache2/sites-available/default-ssl.conf
-# Add the following inside <VirtualHost *:443>:
-# <Directory /var/www/html>
-#        Options Indexes FollowSymLinks MultiViews
-#        AllowOverride All
-#        Require all granted
-# </Directory>
-# SSLEngine on
-# SSLCertificateFile      /path/to/signed_cert_and_intermediate_certs
-# SSLCertificateKeyFile   /path/to/private_key
-# Protocols h2 http/1.1
-# Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
-# Header always set X-Frame-Options DENY
-# Header always set X-Content-Type-Options nosniff
-# Header always set Referrer-Policy "strict-origin-when-cross-origin"
+# Create site directory
+mkdir -p $SITE_ROOT
 
-# Modern SSL/TLS Configuration
-# Add to /etc/apache2/mods-available/ssl.conf:
-# SSLProtocol             all -SSLv3 -TLSv1 -TLSv1.1
-# SSLHonorCipherOrder     off
-# SSLSessionTickets       off
-# SSLUseStapling On
-# SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
+# HTTP VirtualHost — redirects all traffic to HTTPS, exempting ACME challenges
+cat > /etc/apache2/sites-available/$DOMAIN.conf <<EOL
+<VirtualHost *:80>
+    ServerAdmin admin@$DOMAIN
+    ServerName $DOMAIN
+    ServerAlias www.$DOMAIN
+    DocumentRoot $SITE_ROOT
 
-# Enable SSL site
-a2ensite default-ssl.conf
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
-# Test and restart
+    ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
+</VirtualHost>
+EOL
+
+# HTTPS VirtualHost
+cat > /etc/apache2/sites-available/$DOMAIN-ssl.conf <<EOL
+<VirtualHost *:443>
+    ServerAdmin admin@$DOMAIN
+    ServerName $DOMAIN
+    ServerAlias www.$DOMAIN
+    DocumentRoot $SITE_ROOT
+
+    <Directory $SITE_ROOT>
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    SSLEngine on
+    SSLCertificateFile      /etc/letsencrypt/live/$DOMAIN/fullchain.pem
+    SSLCertificateKeyFile   /etc/letsencrypt/live/$DOMAIN/privkey.pem
+    Protocols h2 http/1.1
+
+    SSLProtocol             -all +TLSv1.3
+    SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+    SSLSessionTickets       off
+    SSLCompression          off
+    SSLUseStapling          on
+
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
+    Header always set X-Frame-Options DENY
+    Header always set X-Content-Type-Options nosniff
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
+    CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
+</VirtualHost>
+EOL
+
+# Add OCSP stapling cache globally (once per server, not per vhost):
+# Edit /etc/apache2/mods-available/ssl.conf and add:
+# SSLStaplingCache "shmcb:/var/run/ocsp_stapling(131072)"
+
+# Enable site and test
+a2ensite $DOMAIN.conf $DOMAIN-ssl.conf
 apache2ctl -t
 systemctl restart apache2.service mariadb.service
 systemctl enable apache2.service mariadb.service
 
 # SSL Certificate Setup (Let's Encrypt)
 apt-get -y install certbot python3-certbot-apache
-certbot --authenticator webroot --installer apache
+certbot --authenticator webroot --webroot-path $SITE_ROOT --installer apache
 
 # Auto-renewal via cron
 crontab -e
 # Add: 0 2 * * * certbot renew --quiet >> /var/log/letsencrypt.log
 
-# WordPress Installation
+# WordPress Database
 mysql -u root -p
 # Execute in MySQL:
-# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'secure_password_here';
+# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'CHANGE_THIS_PASSWORD';  # Replace before running!
 # CREATE DATABASE wordpress;
 # GRANT ALL ON `wordpress`.* TO `wpuser`@`localhost`;
 # FLUSH PRIVILEGES;
 # exit;
 
 # Download and extract WordPress
-cd /tmp
-wget https://wordpress.org/latest.tar.gz
-tar xpzf latest.tar.gz
-
-# Setup WordPress directory
-rm -rf /var/www/html
-cp -r wordpress /var/www/html
-chown -R www-data:www-data /var/www/html
-find /var/www/html -type d -exec chmod 755 {} \;
-find /var/www/html -type f -exec chmod 644 {} \;
+wget -q https://wordpress.org/latest.tar.gz -O /tmp/latest.tar.gz
+tar -xzf /tmp/latest.tar.gz -C $SITE_ROOT --strip-components=1
+rm /tmp/latest.tar.gz
+chown -R www-data:www-data $SITE_ROOT
+find $SITE_ROOT -type d -exec chmod 755 {} \;
+find $SITE_ROOT -type f -exec chmod 644 {} \;
 
 # Configure WordPress
-cd /var/www/html
-cp wp-config-sample.php wp-config.php
-nano wp-config.php
+cp $SITE_ROOT/wp-config-sample.php $SITE_ROOT/wp-config.php
+nano $SITE_ROOT/wp-config.php
 # Update the following with your database credentials:
 # define('DB_NAME', 'wordpress');
 # define('DB_USER', 'wpuser');
-# define('DB_PASSWORD', 'secure_password_here');
+# define('DB_PASSWORD', 'CHANGE_THIS_PASSWORD');
 # define('DB_HOST', 'localhost');
 
-# Generate security keys and salts (uncomment and replace in wp-config.php):
+# Generate security keys and salts (replace in wp-config.php):
 # https://api.wordpress.org/secret-key/1.1/salt/
 
 # Set proper permissions for security
-chmod 644 /var/www/html/wp-config.php
-chmod 600 /var/www/html/.htaccess
+chmod 644 $SITE_ROOT/wp-config.php
 
 # Optimize PHP for WordPress
-nano /etc/php/8.3/apache2/php.ini
+nano /etc/php/8.3/fpm/php.ini
 # Recommended settings:
 # memory_limit = 256M
 # upload_max_filesize = 64M
@@ -122,12 +152,16 @@ nano /etc/php/8.3/apache2/php.ini
 systemctl restart apache2.service php8.3-fpm.service
 
 # Complete WordPress setup
-# Navigate to https://your-domain.com in your browser and complete the installation wizard
+# Navigate to https://$DOMAIN in your browser and complete the installation wizard
+
+# After WordPress setup wizard completes, secure .htaccess:
+# chmod 644 $SITE_ROOT/.htaccess
+
+# To add another site, run add_site.sh
 
 # Post-Installation Security
-# 1. Remove default Apache index page (if not already done)
-# 2. Set up automatic backups
-# 3. Install WordPress security plugins (Wordfence, Sucuri, etc.)
-# 4. Disable XML-RPC if not needed
-# 5. Keep WordPress, themes, and plugins updated
-# 6. Consider setting up a WAF (Web Application Firewall)
+# 1. Set up automatic backups
+# 2. Install WordPress security plugins (Wordfence, Sucuri, etc.)
+# 3. Disable XML-RPC if not needed
+# 4. Keep WordPress, themes, and plugins updated
+# 5. Consider setting up a WAF (Web Application Firewall)

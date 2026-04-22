@@ -39,10 +39,9 @@
       hostname:
         name: "{{ hostname }}"
 
-    - name: Update apt cache and upgrade packages
+    - name: Update apt cache
       apt:
         update_cache: yes
-        upgrade: yes
 
     - name: Install base packages
       apt:
@@ -60,19 +59,18 @@
           - mariadb-client
           - certbot
           - python3-certbot-apache
+          - python3-pymysql
           - ufw
         state: present
 
-    - name: Install PHP {{ php_version }}
-      apt:
-        name: "php{{ php_version }}"
-        state: present
+    - name: Build PHP package list
+      set_fact:
+        php_packages: "{{ ['php' + php_version] + (php_modules | map('regex_replace', '^', 'php' + php_version + '-') | list) }}"
 
-    - name: Install PHP {{ php_version }} extensions
+    - name: Install PHP {{ php_version }} and extensions
       apt:
-        name: "php{{ php_version }}-{{ item }}"
+        name: "{{ php_packages }}"
         state: present
-      loop: "{{ php_modules }}"
 
     - name: Configure firewall
       ufw:
@@ -93,20 +91,39 @@
         state: started
         enabled: true
 
-    - name: Secure MariaDB
-      shell: |
-        mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';"
-        mysql -e "DELETE FROM mysql.user WHERE User='';"
-        mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
-        mysql -e "DROP DATABASE IF EXISTS test;"
-        mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
-        mysql -e "FLUSH PRIVILEGES;"
+    - name: Set MariaDB root password
+      mysql_user:
+        name: root
+        host_all: yes
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        check_implicit_admin: yes
+        state: present
+      no_log: true
+
+    - name: Remove anonymous MariaDB users
+      mysql_user:
+        name: ''
+        host_all: yes
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        state: absent
+      no_log: true
+
+    - name: Remove MariaDB test database
+      mysql_db:
+        name: test
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        state: absent
+      no_log: true
 
     - name: Switch Apache to mpm_event and enable PHP-FPM
       shell: |
         a2dismod mpm_prefork php{{ php_version }} || true
         a2enmod mpm_event proxy_fcgi setenvif rewrite ssl headers http2
         a2enconf php{{ php_version }}-fpm
+      changed_when: false
 
     - name: Enable and start PHP-FPM
       systemd:
@@ -118,7 +135,7 @@
       lineinfile:
         path: /etc/apache2/mods-available/ssl.conf
         line: 'SSLStaplingCache "shmcb:/var/run/ocsp_stapling(131072)"'
-        insertbefore: EOF
+        insertafter: EOF
 
     - name: Enable and start Apache
       systemd:
@@ -155,10 +172,11 @@
 
     - name: Enable HTTP site
       shell: a2ensite {{ domain }}.conf
+      changed_when: false
 
-    - name: Validate and reload Apache before certbot
+    - name: Validate Apache configuration
       shell: apachectl configtest
-      notify: Reload Apache
+      changed_when: false
 
     - name: Flush handlers before certbot
       meta: flush_handlers
@@ -168,6 +186,8 @@
         certbot certonly --webroot -w {{ wordpress_dir }}
         --non-interactive --agree-tos --email {{ certbot_email }}
         -d {{ domain }} -d www.{{ domain }}
+      args:
+        creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
 
     - name: Create HTTPS VirtualHost
       copy:
@@ -211,6 +231,7 @@
       shell: |
         a2ensite {{ domain }}-ssl.conf
         apachectl configtest
+      changed_when: false
       notify: Reload Apache
 
     - name: Add Certbot renewal to crontab
@@ -227,6 +248,7 @@
         login_user: root
         login_password: "{{ mysql_root_password }}"
         state: present
+      no_log: true
 
     - name: Create WordPress database user
       mysql_user:
@@ -237,6 +259,7 @@
         login_user: root
         login_password: "{{ mysql_root_password }}"
         state: present
+      no_log: true
 
     - name: Download and extract WordPress
       shell: |
@@ -246,36 +269,37 @@
         chown -R www-data:www-data {{ wordpress_dir }}
         find {{ wordpress_dir }} -type d -exec chmod 755 {} \;
         find {{ wordpress_dir }} -type f -exec chmod 644 {} \;
-
-    - name: Fetch WordPress secret keys
-      uri:
-        url: https://api.wordpress.org/secret-key/1.1/salt/
-        return_content: yes
-      register: wp_salts
+      args:
+        creates: "{{ wordpress_dir }}/wp-login.php"
 
     - name: Create wp-config.php
-      copy:
-        dest: "{{ wordpress_dir }}/wp-config.php"
-        owner: www-data
-        group: www-data
-        mode: "0644"
-        content: |
-          <?php
-          define( 'DB_NAME', '{{ wordpress_db_name }}' );
-          define( 'DB_USER', '{{ wordpress_db_user }}' );
-          define( 'DB_PASSWORD', '{{ wordpress_db_password }}' );
-          define( 'DB_HOST', 'localhost' );
-          define( 'DB_CHARSET', 'utf8mb4' );
-          define( 'DB_COLLATE', '' );
+      shell: |
+        WP_SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
+        cat > {{ wordpress_dir }}/wp-config.php << 'WPEOF'
+        <?php
+        define( 'DB_NAME', '{{ wordpress_db_name }}' );
+        define( 'DB_USER', '{{ wordpress_db_user }}' );
+        define( 'DB_PASSWORD', '{{ wordpress_db_password }}' );
+        define( 'DB_HOST', 'localhost' );
+        define( 'DB_CHARSET', 'utf8mb4' );
+        define( 'DB_COLLATE', '' );
 
-          {{ wp_salts.content }}
+        WPEOF
+        printf '%s\n' "$WP_SALTS" >> {{ wordpress_dir }}/wp-config.php
+        cat >> {{ wordpress_dir }}/wp-config.php << 'WPEOF'
 
-          $table_prefix = 'wp_';
-          define( 'WP_DEBUG', false );
-          if ( !defined( 'ABSPATH' ) ) {
-              define( 'ABSPATH', dirname( __FILE__ ) . '/' );
-          }
-          require_once ABSPATH . 'wp-settings.php';
+        $table_prefix = 'wp_';
+        define( 'WP_DEBUG', false );
+        if ( !defined( 'ABSPATH' ) ) {
+            define( 'ABSPATH', dirname( __FILE__ ) . '/' );
+        }
+        require_once ABSPATH . 'wp-settings.php';
+        WPEOF
+        chown www-data:www-data {{ wordpress_dir }}/wp-config.php
+        chmod 644 {{ wordpress_dir }}/wp-config.php
+      args:
+        creates: "{{ wordpress_dir }}/wp-config.php"
+      no_log: true
 
     - name: Mount and configure additional disk
       when: additional_disk | length > 0
@@ -298,10 +322,15 @@
             opts: defaults
             state: mounted
 
-        - name: Add to fstab
+        - name: Get UUID of additional disk
+          command: "blkid -s UUID -o value {{ additional_disk }}"
+          register: disk_uuid
+          changed_when: false
+
+        - name: Add disk to fstab
           lineinfile:
             path: /etc/fstab
-            line: "UUID={{ lookup('pipe', 'blkid -s UUID -o value ' + additional_disk) }} {{ additional_mount }} ext4 defaults,nofail 1 2"
+            line: "{{ disk_uuid.stdout }} {{ additional_mount }} ext4 defaults,nofail 1 2"
 
   handlers:
     - name: Reload Apache

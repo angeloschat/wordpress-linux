@@ -8,12 +8,13 @@ Install WordPress on Debian or Ubuntu in a few easy steps.
 
 ## Scripts
 
-| Script | Purpose |
-|---|---|
-| `install.txt` | Full server setup — Apache, MariaDB, PHP-FPM, SSL, WordPress |
-| `install_wordpress.sh` | Automated single-site install with Let's Encrypt |
-| `install_wordpress_ssl.sh` | Automated single-site install, SSL via webroot method |
-| `add_site.sh` | Add a new WordPress site to an existing server |
+| File | Type | Purpose |
+|---|---|---|
+| `setup.yml` | Ansible playbook | Full automated server setup — run with `ansible-playbook setup.yml` |
+| `install.txt` | Manual guide | Step-by-step reference for a manual install |
+| `install_wordpress.sh` | Shell script | Automated single-site install with Let's Encrypt |
+| `install_wordpress_ssl.sh` | Shell script | Automated single-site install, SSL via webroot method |
+| `add_site.sh` | Shell script | Add a new WordPress site to an existing server |
 
 Sites are installed under `/var/www/html/<domain>`.
 

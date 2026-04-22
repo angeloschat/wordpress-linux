@@ -1,11 +1,15 @@
 ---
-- name: Setup LAMP stack with WordPress and optional disk
+- name: Setup WordPress with PHP-FPM + mpm_event on Apache
   hosts: all
   become: yes
 
   vars:
     hostname: "xxxx.xxxx.xx"
+    domain: "example.com"
+    php_version: "8.3"
     php_modules:
+      - cli
+      - common
       - curl
       - mbstring
       - igbinary
@@ -18,16 +22,16 @@
       - opcache
       - redis
       - ssh2
-    mysql_root_password: "root_password"
-    wordpress_db_name: "wordpress"
-    wordpress_user: "USERNAME"
-    wordpress_password: "PASSWORD"
+      - mysqli
+      - fpm
+    mysql_root_password: "CHANGE_THIS"
+    wordpress_db_name: "wordpress_{{ domain | replace('.', '_') }}"
+    wordpress_db_user: "wp_user_{{ domain | replace('.', '_') }}"
+    wordpress_db_password: "CHANGE_THIS"
     wordpress_url: "https://wordpress.org/latest.tar.gz"
-    wordpress_dir: "/data/www/html"
-    certbot_cron_job: "0 2 * * * certbot renew >> /var/log/letsencrypt.log"
-    ssl_cert_file: "/path/to/signed_cert_and_intermediate_certs"
-    ssl_key_file: "/path/to/private_key"
-    additional_disk: "/dev/sdc1"
+    wordpress_dir: "/var/www/html/{{ domain }}"
+    certbot_email: "admin@{{ domain }}"
+    additional_disk: ""
     additional_mount: "/datadrive"
 
   tasks:
@@ -35,7 +39,11 @@
       hostname:
         name: "{{ hostname }}"
 
-    - name: Install required packages
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install base packages
       apt:
         name:
           - net-tools
@@ -49,108 +57,259 @@
           - apache2
           - mariadb-server
           - mariadb-client
-          - php
-          - "php8.2-{{ item }}"
-        state: present
-      with_items: "{{ php_modules }}"
-
-    - name: Enable and start services
-      systemd:
-        name: "{{ item }}"
-        state: started
-        enabled: true
-      with_items:
-        - apache2
-        - mariadb
-
-    - name: Secure MySQL installation
-      shell: |
-        mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';"
-        mysql -e "DELETE FROM mysql.user WHERE User='';"
-        mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
-        mysql -e "FLUSH PRIVILEGES;"
-
-    - name: Configure Apache modules
-      shell: |
-        a2enmod rewrite ssl
-        systemctl restart apache2
-
-    - name: Update default Apache configuration
-      copy:
-        content: |
-          <Directory /data/www/html>
-              Options Indexes FollowSymLinks MultiViews
-              AllowOverride All
-              Require all granted
-          </Directory>
-        dest: /etc/apache2/sites-enabled/000-default.conf
-
-    - name: Configure SSL
-      copy:
-        content: |
-          <Directory /data/www/html>
-              Options Indexes FollowSymLinks MultiViews
-              AllowOverride All
-              Require all granted
-          </Directory>
-          SSLEngine on
-          SSLCertificateFile {{ ssl_cert_file }}
-          SSLCertificateKeyFile {{ ssl_key_file }}
-          SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1 -TLSv1.2
-          SSLHonorCipherOrder off
-          SSLSessionTickets off
-          SSLUseStapling On
-          SSLStaplingCache "shmcb:logs/ssl_stapling(32768)"
-          Header always set Strict-Transport-Security "max-age=63072000; includeSubdomains; preload"
-          Header always set X-Frame-Options DENY
-          Header always set X-Content-Type-Options nosniff
-        dest: /etc/apache2/sites-available/default-ssl.conf
-      notify: Restart Apache
-
-    - name: Install Certbot
-      apt:
-        name:
           - certbot
           - python3-certbot-apache
+          - python3-pymysql
+          - ufw
         state: present
+
+    - name: Build PHP package list
+      set_fact:
+        php_packages: "{{ ['php' + php_version] + (php_modules | map('regex_replace', '^', 'php' + php_version + '-') | list) }}"
+
+    - name: Install PHP {{ php_version }} and extensions
+      apt:
+        name: "{{ php_packages }}"
+        state: present
+
+    - name: Configure firewall
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "443"
+
+    - name: Enable firewall
+      ufw:
+        state: enabled
+
+    - name: Enable and start MariaDB
+      systemd:
+        name: mariadb
+        state: started
+        enabled: true
+
+    - name: Set MariaDB root password
+      mysql_user:
+        name: root
+        host_all: yes
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        check_implicit_admin: yes
+        state: present
+      no_log: true
+
+    - name: Remove anonymous MariaDB users
+      mysql_user:
+        name: ''
+        host_all: yes
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        state: absent
+      no_log: true
+
+    - name: Remove MariaDB test database
+      mysql_db:
+        name: test
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        state: absent
+      no_log: true
+
+    - name: Switch Apache to mpm_event and enable PHP-FPM
+      shell: |
+        a2dismod mpm_prefork php{{ php_version }} || true
+        a2enmod mpm_event proxy_fcgi setenvif rewrite ssl headers http2
+        a2enconf php{{ php_version }}-fpm
+      changed_when: false
+
+    - name: Enable and start PHP-FPM
+      systemd:
+        name: "php{{ php_version }}-fpm"
+        state: started
+        enabled: true
+
+    - name: Add OCSP stapling cache to ssl.conf
+      lineinfile:
+        path: /etc/apache2/mods-available/ssl.conf
+        line: 'SSLStaplingCache "shmcb:/var/run/ocsp_stapling(131072)"'
+        insertafter: EOF
+
+    - name: Enable and start Apache
+      systemd:
+        name: apache2
+        state: started
+        enabled: true
+
+    - name: Create site directory
+      file:
+        path: "{{ wordpress_dir }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Create HTTP VirtualHost
+      copy:
+        dest: "/etc/apache2/sites-available/{{ domain }}.conf"
+        content: |
+          <VirtualHost *:80>
+              ServerAdmin {{ certbot_email }}
+              ServerName {{ domain }}
+              ServerAlias www.{{ domain }}
+              DocumentRoot {{ wordpress_dir }}
+
+              RewriteEngine On
+              RewriteCond %{REQUEST_URI} !^/\.well-known/
+              RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+              ErrorLog ${APACHE_LOG_DIR}/{{ domain }}_error.log
+              CustomLog ${APACHE_LOG_DIR}/{{ domain }}_access.log combined
+          </VirtualHost>
+      notify: Reload Apache
+
+    - name: Enable HTTP site
+      shell: a2ensite {{ domain }}.conf
+      changed_when: false
+
+    - name: Validate Apache configuration
+      shell: apachectl configtest
+      changed_when: false
+
+    - name: Flush handlers before certbot
+      meta: flush_handlers
+
+    - name: Generate Let's Encrypt certificate
+      shell: >
+        certbot certonly --webroot -w {{ wordpress_dir }}
+        --non-interactive --agree-tos --email {{ certbot_email }}
+        -d {{ domain }} -d www.{{ domain }}
+      args:
+        creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+
+    - name: Create HTTPS VirtualHost
+      copy:
+        dest: "/etc/apache2/sites-available/{{ domain }}-ssl.conf"
+        content: |
+          <VirtualHost *:443>
+              ServerAdmin {{ certbot_email }}
+              ServerName {{ domain }}
+              ServerAlias www.{{ domain }}
+              DocumentRoot {{ wordpress_dir }}
+
+              <Directory {{ wordpress_dir }}>
+                  Options FollowSymLinks
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+
+              SSLEngine on
+              SSLCertificateFile /etc/letsencrypt/live/{{ domain }}/fullchain.pem
+              SSLCertificateKeyFile /etc/letsencrypt/live/{{ domain }}/privkey.pem
+              Protocols h2 http/1.1
+
+              SSLProtocol             -all +TLSv1.3
+              SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+              SSLSessionTickets       off
+              SSLCompression          off
+              SSLUseStapling          on
+
+              Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+              Header always set X-Frame-Options DENY
+              Header always set X-Content-Type-Options nosniff
+              Header always set Referrer-Policy "strict-origin-when-cross-origin"
+              Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+
+              ErrorLog ${APACHE_LOG_DIR}/{{ domain }}_error.log
+              CustomLog ${APACHE_LOG_DIR}/{{ domain }}_access.log combined
+          </VirtualHost>
+      notify: Reload Apache
+
+    - name: Enable HTTPS site
+      shell: |
+        a2ensite {{ domain }}-ssl.conf
+        apachectl configtest
+      changed_when: false
+      notify: Reload Apache
 
     - name: Add Certbot renewal to crontab
       cron:
         name: "Certbot Renewal"
         minute: "0"
         hour: "2"
-        job: "{{ certbot_cron_job }}"
+        job: "certbot renew --quiet >> /var/log/letsencrypt.log"
         state: present
 
-    - name: Configure WordPress database
+    - name: Create WordPress database
       mysql_db:
         name: "{{ wordpress_db_name }}"
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
         state: present
+      no_log: true
+
+    - name: Create WordPress database user
       mysql_user:
-        name: "{{ wordpress_user }}"
-        password: "{{ wordpress_password }}"
+        name: "{{ wordpress_db_user }}"
+        password: "{{ wordpress_db_password }}"
         priv: "{{ wordpress_db_name }}.*:ALL"
         host: localhost
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
         state: present
+      no_log: true
 
-    - name: Download and configure WordPress
+    - name: Download and extract WordPress
       shell: |
-        wget -qO- {{ wordpress_url }} | tar xz
-        rm -rf {{ wordpress_dir }}
-        mv wordpress {{ wordpress_dir }}
+        wget -q {{ wordpress_url }} -O /tmp/latest.tar.gz
+        tar -xzf /tmp/latest.tar.gz -C {{ wordpress_dir }} --strip-components=1
+        rm /tmp/latest.tar.gz
         chown -R www-data:www-data {{ wordpress_dir }}
         find {{ wordpress_dir }} -type d -exec chmod 755 {} \;
         find {{ wordpress_dir }} -type f -exec chmod 644 {} \;
+      args:
+        creates: "{{ wordpress_dir }}/wp-login.php"
 
-    - name: Mount and configure additional disk (optional)
+    - name: Create wp-config.php
+      shell: |
+        WP_SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
+        cat > {{ wordpress_dir }}/wp-config.php << 'WPEOF'
+        <?php
+        define( 'DB_NAME', '{{ wordpress_db_name }}' );
+        define( 'DB_USER', '{{ wordpress_db_user }}' );
+        define( 'DB_PASSWORD', '{{ wordpress_db_password }}' );
+        define( 'DB_HOST', 'localhost' );
+        define( 'DB_CHARSET', 'utf8mb4' );
+        define( 'DB_COLLATE', '' );
+
+        WPEOF
+        printf '%s\n' "$WP_SALTS" >> {{ wordpress_dir }}/wp-config.php
+        cat >> {{ wordpress_dir }}/wp-config.php << 'WPEOF'
+
+        $table_prefix = 'wp_';
+        define( 'WP_DEBUG', false );
+        if ( !defined( 'ABSPATH' ) ) {
+            define( 'ABSPATH', dirname( __FILE__ ) . '/' );
+        }
+        require_once ABSPATH . 'wp-settings.php';
+        WPEOF
+        chown www-data:www-data {{ wordpress_dir }}/wp-config.php
+        chmod 644 {{ wordpress_dir }}/wp-config.php
+      args:
+        creates: "{{ wordpress_dir }}/wp-config.php"
+      no_log: true
+
+    - name: Mount and configure additional disk
+      when: additional_disk | length > 0
       block:
         - name: Partition and format disk
           shell: |
             echo -e "n\np\n\n\n\nw" | fdisk /dev/sdc
             mkfs.ext4 {{ additional_disk }}
-          when: additional_disk is defined
 
-        - name: Create and mount directory
+        - name: Create mount directory
           file:
             path: "{{ additional_mount }}"
             state: directory
@@ -163,14 +322,18 @@
             opts: defaults
             state: mounted
 
-        - name: Add to fstab
+        - name: Get UUID of additional disk
+          command: "blkid -s UUID -o value {{ additional_disk }}"
+          register: disk_uuid
+          changed_when: false
+
+        - name: Add disk to fstab
           lineinfile:
             path: /etc/fstab
-            line: "UUID={{ lookup('pipe', 'blkid -s UUID -o value ' + additional_disk) }} {{ additional_mount }} ext4 defaults,nofail 1 2"
-          when: additional_disk is defined
+            line: "{{ disk_uuid.stdout }} {{ additional_mount }} ext4 defaults,nofail 1 2"
 
   handlers:
-    - name: Restart Apache
+    - name: Reload Apache
       systemd:
         name: apache2
-        state: restarted
+        state: reloaded

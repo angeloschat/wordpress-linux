@@ -55,4 +55,4 @@ Any of these work well for a small WordPress VPS:
 
 ---
 
-*Last updated: January 2026*
+*Last updated: April 2026*

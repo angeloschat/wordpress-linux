@@ -19,7 +19,7 @@ echo
 DB_NAME="wordpress_$(echo $DOMAIN | tr . _)"
 DB_USER="wp_user_$(echo $DOMAIN | tr . _)"
 DB_PASSWORD=$(openssl rand -base64 16)
-WORDPRESS_DIR="/var/www/$DOMAIN"
+WORDPRESS_DIR="/var/www/html/$DOMAIN"
 
 # Update system packages
 echo "Updating system packages..."

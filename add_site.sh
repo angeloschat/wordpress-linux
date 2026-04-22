@@ -75,9 +75,8 @@ cat > /etc/apache2/sites-available/$DOMAIN-ssl.conf <<EOL
     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
     Protocols h2 http/1.1
 
-    SSLProtocol             -all +TLSv1.3 +TLSv1.2
-    SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305
-    SSLHonorCipherOrder     on
+    SSLProtocol             -all +TLSv1.3
+    SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
     SSLSessionTickets       off
     SSLCompression          off
     SSLUseStapling          on

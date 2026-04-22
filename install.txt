@@ -155,7 +155,7 @@ systemctl restart apache2.service php8.3-fpm.service
 # After WordPress setup wizard completes, secure .htaccess:
 # chmod 644 $SITE_ROOT/.htaccess
 
-# To add another site, set DOMAIN= to the new domain and repeat from "Create site directory" onwards
+# To add another site, run add_site.sh
 
 # Post-Installation Security
 # 1. Set up automatic backups

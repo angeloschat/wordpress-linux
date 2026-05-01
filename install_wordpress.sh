@@ -20,6 +20,7 @@ DB_NAME="wordpress_$(echo $DOMAIN | tr . _)"
 DB_USER="wp_user_$(echo $DOMAIN | tr . _)"
 DB_PASSWORD=$(openssl rand -base64 16)
 WORDPRESS_DIR="/var/www/html/$DOMAIN"
+ACME_ROOT="/var/www/letsencrypt"
 
 IFS='.' read -ra DOMAIN_PARTS <<< "$DOMAIN"
 if [ "${#DOMAIN_PARTS[@]}" -eq 2 ]; then
@@ -96,6 +97,7 @@ EOF
 
 # Create HTTP VirtualHost only — SSL vhost is created after certbot
 echo "Creating Apache HTTP configuration for $DOMAIN..."
+mkdir -p "$ACME_ROOT/.well-known/acme-challenge"
 cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
 <VirtualHost *:80>
     ServerAdmin $EMAIL
@@ -103,8 +105,10 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
     $WWW_ALIAS
     DocumentRoot $WORDPRESS_DIR
 
-    <Directory $WORDPRESS_DIR>
-        AllowOverride All
+    Alias /.well-known/acme-challenge $ACME_ROOT/.well-known/acme-challenge
+    <Directory $ACME_ROOT/.well-known/acme-challenge>
+        Options None
+        AllowOverride None
         Require all granted
     </Directory>
 
@@ -117,11 +121,11 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
 </VirtualHost>
 EOL
 
-# Enable HTTP site and required modules, then reload
+# Enable HTTP site and required modules, then restart
 echo "Enabling Apache HTTP site..."
 a2ensite $DOMAIN
 a2enmod rewrite ssl headers
-systemctl reload apache2
+systemctl restart apache2
 
 # Download and install WordPress before certbot (DocumentRoot must exist for webroot auth)
 echo "Downloading and configuring WordPress..."
@@ -134,7 +138,7 @@ find $WORDPRESS_DIR -type f -exec chmod 644 {} \;
 
 # Obtain SSL certificate via webroot
 echo "Obtaining Let's Encrypt SSL certificate for $DOMAIN..."
-if ! certbot certonly --webroot -w "$WORDPRESS_DIR" --non-interactive --agree-tos \
+if ! certbot certonly --webroot -w "$ACME_ROOT" --non-interactive --agree-tos \
     --email "$EMAIL" $CERTBOT_DOMAINS; then
     echo "Error: SSL certificate generation failed. Check DNS and ensure port 80 is accessible."
     exit 1

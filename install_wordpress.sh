@@ -183,6 +183,12 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
 EOL
 
 a2ensite $DOMAIN-ssl
+
+# SSLStaplingCache must be at server level — required when SSLUseStapling is on
+echo "SSLStaplingCache shmcb:/run/apache2/ocsp(128000)" \
+    > /etc/apache2/conf-available/ssl-stapling.conf
+a2enconf ssl-stapling
+
 apachectl configtest
 systemctl reload apache2
 

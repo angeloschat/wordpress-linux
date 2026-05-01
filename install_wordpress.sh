@@ -259,6 +259,74 @@ find /opt/backups -maxdepth 1 -type d -mtime +7 -exec rm -rf {} \;
 EOF
 chmod +x /usr/local/bin/wp-backup.sh
 
+cat <<'EOF' > /usr/local/bin/wp-restore.sh
+#!/usr/bin/env bash
+set -e
+
+BACKUP_BASE="/opt/backups"
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Error: run as root."
+    exit 1
+fi
+
+# List available backup dates
+echo "Available backups:"
+DATES=()
+i=1
+for d in $(ls -1r "$BACKUP_BASE"); do
+    [[ -d "$BACKUP_BASE/$d" ]] || continue
+    echo "  $i) $d"
+    DATES+=("$d")
+    ((i++))
+done
+
+[[ ${#DATES[@]} -eq 0 ]] && { echo "No backups found in $BACKUP_BASE."; exit 1; }
+
+read -p "Select backup number: " SEL
+[[ -z "$SEL" || "$SEL" -lt 1 || "$SEL" -gt ${#DATES[@]} ]] && { echo "Invalid selection."; exit 1; }
+
+DATE="${DATES[$((SEL-1))]}"
+BACKUP_DIR="$BACKUP_BASE/$DATE"
+
+# Detect site from backup files
+SITE=$(ls "$BACKUP_DIR"/*_files.tar.gz 2>/dev/null | head -1 | xargs basename | sed 's/_files\.tar\.gz//')
+[[ -z "$SITE" ]] && { echo "Error: no file backup found in $BACKUP_DIR."; exit 1; }
+
+WEBROOT="/var/www/html/$SITE"
+FILES_BACKUP="$BACKUP_DIR/${SITE}_files.tar.gz"
+DB_BACKUP="$BACKUP_DIR/${SITE}_db.sql"
+
+echo ""
+echo "Site   : $SITE"
+echo "Date   : $DATE"
+echo "Files  : $FILES_BACKUP"
+echo "DB     : $DB_BACKUP"
+echo ""
+read -p "WARNING: this will overwrite live files and database. Continue? (yes/no): " CONFIRM
+[[ "$CONFIRM" != "yes" ]] && { echo "Aborted."; exit 0; }
+
+# Restore files
+echo "Restoring files..."
+rm -rf "$WEBROOT"
+mkdir -p "$WEBROOT"
+tar -xzf "$FILES_BACKUP" -C "$WEBROOT"
+chown -R www-data:www-data "$WEBROOT"
+find "$WEBROOT" -type d -exec chmod 755 {} \;
+find "$WEBROOT" -type f -exec chmod 644 {} \;
+
+# Restore database
+echo "Restoring database..."
+DB_NAME=$(grep "DB_NAME" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+DB_USER=$(grep "DB_USER" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+DB_PASS=$(grep "DB_PASSWORD" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+
+mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$DB_BACKUP"
+
+echo "Restore complete. Site $SITE is back to $DATE."
+EOF
+chmod +x /usr/local/bin/wp-restore.sh
+
 # Add both backup and SSL renewal to root crontab (visible via crontab -l)
 echo "Adding cron jobs..."
 (crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/wp-backup.sh >> /var/log/wp-backup.log 2>&1") | crontab -

@@ -94,6 +94,11 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
     ServerAlias www.$DOMAIN
     DocumentRoot $WORDPRESS_DIR
 
+    <Directory $WORDPRESS_DIR>
+        AllowOverride All
+        Require all granted
+    </Directory>
+
     RewriteEngine On
     RewriteCond %{REQUEST_URI} !^/\.well-known/
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
@@ -120,8 +125,16 @@ find $WORDPRESS_DIR -type f -exec chmod 644 {} \;
 
 # Obtain SSL certificate via webroot
 echo "Obtaining Let's Encrypt SSL certificate for $DOMAIN..."
-if ! certbot certonly --webroot -w $WORDPRESS_DIR --non-interactive --agree-tos \
-    --email $EMAIL -d $DOMAIN -d www.$DOMAIN; then
+CERTBOT_DOMAINS="-d $DOMAIN"
+WWW_ALIAS=""
+if getent hosts "www.$DOMAIN" &>/dev/null; then
+    CERTBOT_DOMAINS="$CERTBOT_DOMAINS -d www.$DOMAIN"
+    WWW_ALIAS="ServerAlias www.$DOMAIN"
+else
+    echo "Warning: www.$DOMAIN has no DNS record — requesting certificate for $DOMAIN only."
+fi
+if ! certbot certonly --webroot -w "$WORDPRESS_DIR" --non-interactive --agree-tos \
+    --email "$EMAIL" $CERTBOT_DOMAINS; then
     echo "Error: SSL certificate generation failed. Check DNS and ensure port 80 is accessible."
     exit 1
 fi
@@ -132,7 +145,7 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
 <VirtualHost *:443>
     ServerAdmin $EMAIL
     ServerName $DOMAIN
-    ServerAlias www.$DOMAIN
+    $WWW_ALIAS
     DocumentRoot $WORDPRESS_DIR
 
     <Directory $WORDPRESS_DIR>

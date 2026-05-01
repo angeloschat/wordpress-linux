@@ -56,60 +56,74 @@ GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
-# Create and configure Apache VirtualHost
-echo "Creating Apache configuration for $DOMAIN..."
+# Create HTTP VirtualHost only — SSL vhost is created after certbot
+echo "Creating Apache HTTP configuration for $DOMAIN..."
 cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
 <VirtualHost *:80>
     ServerAdmin $EMAIL
     ServerName $DOMAIN
     ServerAlias www.$DOMAIN
-
     DocumentRoot $WORDPRESS_DIR
-    <Directory $WORDPRESS_DIR>
-        Options FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
+
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
     ErrorLog \${APACHE_LOG_DIR}/${DOMAIN}_error.log
     CustomLog \${APACHE_LOG_DIR}/${DOMAIN}_access.log combined
 </VirtualHost>
 EOL
 
+# Enable HTTP site and required modules, then reload
+echo "Enabling Apache HTTP site..."
+a2ensite $DOMAIN
+a2enmod rewrite ssl headers
+systemctl reload apache2
+
+# Download and install WordPress before certbot (DocumentRoot must exist for webroot auth)
+echo "Downloading and configuring WordPress..."
+mkdir -p $WORDPRESS_DIR
+wget -q https://wordpress.org/latest.tar.gz -O /tmp/latest.tar.gz
+tar -xzf /tmp/latest.tar.gz -C $WORDPRESS_DIR --strip-components=1
+chown -R www-data:www-data $WORDPRESS_DIR
+find $WORDPRESS_DIR -type d -exec chmod 755 {} \;
+find $WORDPRESS_DIR -type f -exec chmod 644 {} \;
+
+# Obtain SSL certificate via webroot
+echo "Obtaining Let's Encrypt SSL certificate for $DOMAIN..."
+if ! certbot certonly --webroot -w $WORDPRESS_DIR --non-interactive --agree-tos \
+    --email $EMAIL -d $DOMAIN -d www.$DOMAIN; then
+    echo "Error: SSL certificate generation failed. Check DNS and ensure port 80 is accessible."
+    exit 1
+fi
+
+# Create SSL VirtualHost now that the certificate exists
+echo "Creating Apache SSL configuration for $DOMAIN..."
 cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
 <VirtualHost *:443>
     ServerAdmin $EMAIL
     ServerName $DOMAIN
     ServerAlias www.$DOMAIN
-
     DocumentRoot $WORDPRESS_DIR
+
     <Directory $WORDPRESS_DIR>
         Options FollowSymLinks
         AllowOverride All
         Require all granted
     </Directory>
 
-    # Enable SSL
     SSLEngine on
     SSLCertificateFile /etc/letsencrypt/live/$DOMAIN/fullchain.pem
     SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN/privkey.pem
+    Protocols h2 http/1.1
 
-    # Modern SSL Protocols
-    SSLProtocol TLSv1.2 TLSv1.3
-    SSLCipherSuite TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256
-    SSLHonorCipherOrder On
-    SSLSessionTickets Off
+    SSLProtocol             -all +TLSv1.3
+    SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+    SSLSessionTickets       off
+    SSLCompression          off
+    SSLUseStapling          on
 
-    # Enable HSTS
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-
-    # Enable OCSP Stapling
-    SSLUseStapling On
-    SSLStaplingResponderTimeout 5
-    SSLStaplingReturnResponderErrors Off
-    SSLStaplingCache "shmcb:/var/run/ocsp_stapling(128000)"
-
-    # Security Headers
     Header always set X-Frame-Options DENY
     Header always set X-Content-Type-Options nosniff
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
@@ -120,28 +134,13 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
 </VirtualHost>
 EOL
 
-# Enable Apache configurations
-echo "Enabling Apache configurations..."
-a2ensite $DOMAIN
 a2ensite $DOMAIN-ssl
-a2enmod rewrite ssl headers
+apachectl configtest
 systemctl reload apache2
 
-# Download and configure WordPress
-echo "Downloading and configuring WordPress..."
-wget -q https://wordpress.org/latest.tar.gz -O /tmp/latest.tar.gz
-mkdir -p $WORDPRESS_DIR
-tar -xzf /tmp/latest.tar.gz -C $WORDPRESS_DIR --strip-components=1
-chown -R www-data:www-data $WORDPRESS_DIR
-find $WORDPRESS_DIR -type d -exec chmod 755 {} \;
-find $WORDPRESS_DIR -type f -exec chmod 644 {} \;
-
-# Fetch WordPress secret keys
-echo "Fetching WordPress secret keys..."
-WP_SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
-
-# Create wp-config.php
+# Fetch WordPress secret keys and create wp-config.php
 echo "Creating WordPress configuration file..."
+WP_SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
 cat <<EOL > $WORDPRESS_DIR/wp-config.php
 <?php
 define( 'DB_NAME', '$DB_NAME' );
@@ -160,17 +159,10 @@ if ( !defined( 'ABSPATH' ) ) {
 }
 require_once ABSPATH . 'wp-settings.php';
 EOL
-
-# Configure Let's Encrypt SSL
-echo "Configuring Let's Encrypt SSL for $DOMAIN..."
-certbot --apache --non-interactive --agree-tos --email $EMAIL -d $DOMAIN -d www.$DOMAIN
+chmod 644 $WORDPRESS_DIR/wp-config.php
 
 # Set up automatic SSL renewal
 echo "Adding Certbot renewal cron job..."
 (crontab -l 2>/dev/null; echo "0 2 * * * certbot renew --quiet >> /var/log/letsencrypt.log") | crontab -
-
-# Reload Apache to apply changes
-echo "Reloading Apache..."
-systemctl reload apache2
 
 echo "Installation completed! Visit https://$DOMAIN to finish WordPress setup."

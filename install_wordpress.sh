@@ -258,10 +258,10 @@ mysqldump -u "\$DB_USER" -p"\$DB_PASS" "\$DB_NAME" > "\$BACKUP_DIR/\${SITE}_db.s
 find /opt/backups -maxdepth 1 -type d -mtime +7 -exec rm -rf {} \;
 EOF
 chmod +x /usr/local/bin/wp-backup.sh
-echo "0 3 * * * root /usr/local/bin/wp-backup.sh >> /var/log/wp-backup.log 2>&1" > /etc/cron.d/wp-backup
 
-# Set up automatic SSL renewal
-echo "Adding Certbot renewal cron job..."
-(crontab -l 2>/dev/null; echo "0 2 * * * certbot renew --quiet >> /var/log/letsencrypt.log") | crontab -
+# Add both backup and SSL renewal to root crontab (visible via crontab -l)
+echo "Adding cron jobs..."
+(crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/wp-backup.sh >> /var/log/wp-backup.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "0 2 * * * certbot renew --quiet >> /var/log/letsencrypt.log 2>&1") | crontab -
 
 echo "Installation completed! Visit https://$DOMAIN to finish WordPress setup."

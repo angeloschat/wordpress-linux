@@ -27,13 +27,42 @@ apt update && apt upgrade -y
 
 # Install required packages
 echo "Installing required packages..."
-apt install -y apache2 mariadb-server mariadb-client wget curl unzip php php-{cli,curl,gd,imagick,intl,json,mbstring,mysql,opcache,readline,xml,zip} \
+apt install -y apache2 mariadb-server mariadb-client wget curl unzip \
+    php php-{cli,curl,gd,imagick,intl,json,mbstring,mysql,opcache,readline,redis,xml,zip} \
+    redis-server ufw fail2ban \
     software-properties-common apt-transport-https certbot python3-certbot-apache bash-completion
 
-# Start and enable Apache and MariaDB
-echo "Starting and enabling Apache and MariaDB services..."
-systemctl start apache2 mariadb
-systemctl enable apache2 mariadb
+# Start and enable Apache, MariaDB, and Redis
+echo "Starting and enabling Apache, MariaDB, and Redis services..."
+systemctl start apache2 mariadb redis-server
+systemctl enable apache2 mariadb redis-server
+
+# Configure UFW firewall
+echo "Configuring firewall..."
+ufw allow OpenSSH
+ufw allow "Apache Full"
+ufw --force enable
+
+# Configure fail2ban
+echo "Configuring fail2ban..."
+cat <<EOF > /etc/fail2ban/jail.local
+[sshd]
+enabled = true
+
+[apache-auth]
+enabled = true
+
+[apache-badbots]
+enabled = true
+
+[apache-noscript]
+enabled = true
+
+[apache-overflows]
+enabled = true
+EOF
+systemctl enable fail2ban
+systemctl restart fail2ban
 
 # Secure MariaDB installation
 echo "Securing MariaDB..."
@@ -152,6 +181,10 @@ define( 'DB_COLLATE', '' );
 
 $WP_SALTS
 
+define( 'WP_REDIS_HOST', '127.0.0.1' );
+define( 'WP_REDIS_PORT', 6379 );
+define( 'WP_CACHE', true );
+
 \$table_prefix = 'wp_';
 define( 'WP_DEBUG', false );
 if ( !defined( 'ABSPATH' ) ) {
@@ -160,6 +193,35 @@ if ( !defined( 'ABSPATH' ) ) {
 require_once ABSPATH . 'wp-settings.php';
 EOL
 chmod 644 $WORDPRESS_DIR/wp-config.php
+
+# Install WP-CLI and activate Redis object cache plugin
+echo "Installing WP-CLI and enabling Redis cache..."
+curl -sO https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+chmod +x wp-cli.phar
+mv wp-cli.phar /usr/local/bin/wp
+sudo -u www-data wp plugin install redis-cache --activate --path="$WORDPRESS_DIR"
+sudo -u www-data wp redis enable --path="$WORDPRESS_DIR"
+
+# Create backup script
+echo "Setting up backup script..."
+mkdir -p /opt/backups
+cat <<EOF > /usr/local/bin/wp-backup.sh
+#!/usr/bin/env bash
+set -e
+DATE=\$(date +%F)
+BACKUP_DIR="/opt/backups/\$DATE"
+mkdir -p "\$BACKUP_DIR"
+SITE="$DOMAIN"
+WEBROOT="$WORDPRESS_DIR"
+tar -czf "\$BACKUP_DIR/\${SITE}_files.tar.gz" -C "\$WEBROOT" .
+DB_NAME=\$(grep "DB_NAME" "\$WEBROOT/wp-config.php" | cut -d "'" -f4)
+DB_USER=\$(grep "DB_USER" "\$WEBROOT/wp-config.php" | cut -d "'" -f4)
+DB_PASS=\$(grep "DB_PASSWORD" "\$WEBROOT/wp-config.php" | cut -d "'" -f4)
+mysqldump -u "\$DB_USER" -p"\$DB_PASS" "\$DB_NAME" > "\$BACKUP_DIR/\${SITE}_db.sql"
+find /opt/backups -maxdepth 1 -type d -mtime +7 -exec rm -rf {} \;
+EOF
+chmod +x /usr/local/bin/wp-backup.sh
+echo "0 3 * * * root /usr/local/bin/wp-backup.sh >> /var/log/wp-backup.log 2>&1" > /etc/cron.d/wp-backup
 
 # Set up automatic SSL renewal
 echo "Adding Certbot renewal cron job..."

@@ -15,6 +15,15 @@ read -sp "Enter your MariaDB root password: " DB_ROOT_PASSWORD
 echo
 [[ -z "$DB_ROOT_PASSWORD" ]] && { echo "Error: MariaDB root password cannot be empty."; exit 1; }
 
+# Prompt for WordPress admin credentials
+read -p "WordPress admin username: " WP_ADMIN_USER
+[[ -z "$WP_ADMIN_USER" ]] && { echo "Error: Admin username cannot be empty."; exit 1; }
+read -sp "WordPress admin password: " WP_ADMIN_PASS
+echo
+[[ -z "$WP_ADMIN_PASS" ]] && { echo "Error: Admin password cannot be empty."; exit 1; }
+read -p "WordPress site title: " WP_TITLE
+[[ -z "$WP_TITLE" ]] && WP_TITLE="$DOMAIN"
+
 # Variables
 DB_NAME="wordpress_$(echo $DOMAIN | tr . _)"
 DB_USER="wp_user_$(echo $DOMAIN | tr . _)"
@@ -204,11 +213,24 @@ require_once ABSPATH . 'wp-settings.php';
 EOL
 chmod 644 $WORDPRESS_DIR/wp-config.php
 
-# Install WP-CLI and activate Redis object cache plugin
-echo "Installing WP-CLI and enabling Redis cache..."
+# Install WP-CLI
+echo "Installing WP-CLI..."
 curl -sO https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
 chmod +x wp-cli.phar
 mv wp-cli.phar /usr/local/bin/wp
+
+# Run WordPress core install to create database tables
+echo "Running WordPress installation..."
+sudo -u www-data wp core install \
+    --url="https://$DOMAIN" \
+    --title="$WP_TITLE" \
+    --admin_user="$WP_ADMIN_USER" \
+    --admin_password="$WP_ADMIN_PASS" \
+    --admin_email="$EMAIL" \
+    --path="$WORDPRESS_DIR"
+
+# Activate Redis object cache plugin
+echo "Enabling Redis cache..."
 sudo -u www-data wp plugin install redis-cache --activate --path="$WORDPRESS_DIR"
 sudo -u www-data wp redis enable --path="$WORDPRESS_DIR"
 

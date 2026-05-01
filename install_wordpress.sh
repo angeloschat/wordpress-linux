@@ -166,7 +166,6 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
     Protocols h2 http/1.1
 
     SSLProtocol             -all +TLSv1.3
-    SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
     SSLSessionTickets       off
     SSLCompression          off
     SSLUseStapling          on

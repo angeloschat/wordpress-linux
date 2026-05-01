@@ -21,6 +21,15 @@ DB_USER="wp_user_$(echo $DOMAIN | tr . _)"
 DB_PASSWORD=$(openssl rand -base64 16)
 WORDPRESS_DIR="/var/www/html/$DOMAIN"
 
+IFS='.' read -ra DOMAIN_PARTS <<< "$DOMAIN"
+if [ "${#DOMAIN_PARTS[@]}" -eq 2 ]; then
+    WWW_ALIAS="ServerAlias www.$DOMAIN"
+    CERTBOT_DOMAINS="-d $DOMAIN -d www.$DOMAIN"
+else
+    WWW_ALIAS=""
+    CERTBOT_DOMAINS="-d $DOMAIN"
+fi
+
 # Update system packages
 echo "Updating system packages..."
 apt update && apt upgrade -y
@@ -91,8 +100,13 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN.conf
 <VirtualHost *:80>
     ServerAdmin $EMAIL
     ServerName $DOMAIN
-    ServerAlias www.$DOMAIN
+    $WWW_ALIAS
     DocumentRoot $WORDPRESS_DIR
+
+    <Directory $WORDPRESS_DIR>
+        AllowOverride All
+        Require all granted
+    </Directory>
 
     RewriteEngine On
     RewriteCond %{REQUEST_URI} !^/\.well-known/
@@ -120,8 +134,8 @@ find $WORDPRESS_DIR -type f -exec chmod 644 {} \;
 
 # Obtain SSL certificate via webroot
 echo "Obtaining Let's Encrypt SSL certificate for $DOMAIN..."
-if ! certbot certonly --webroot -w $WORDPRESS_DIR --non-interactive --agree-tos \
-    --email $EMAIL -d $DOMAIN -d www.$DOMAIN; then
+if ! certbot certonly --webroot -w "$WORDPRESS_DIR" --non-interactive --agree-tos \
+    --email "$EMAIL" $CERTBOT_DOMAINS; then
     echo "Error: SSL certificate generation failed. Check DNS and ensure port 80 is accessible."
     exit 1
 fi
@@ -132,7 +146,7 @@ cat <<EOL > /etc/apache2/sites-available/$DOMAIN-ssl.conf
 <VirtualHost *:443>
     ServerAdmin $EMAIL
     ServerName $DOMAIN
-    ServerAlias www.$DOMAIN
+    $WWW_ALIAS
     DocumentRoot $WORDPRESS_DIR
 
     <Directory $WORDPRESS_DIR>

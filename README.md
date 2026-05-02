@@ -16,7 +16,7 @@ Install WordPress on Debian or Ubuntu guide and scripts
 | `install_wordpress_gpt.sh` | Shell script | ChatGPT version |
 | `installv2.txt` |  Manual guide | Step-by-step reference for a manual install AI enchanced |
 | `setup.yml` | Ansible playbook | Full automated server setup — run with `ansible-playbook setup.yml` |
-Sites are installed under `/var/www/html/<domain>`.
+
 
 ---
 

@@ -2,7 +2,7 @@
 
 Install WordPress on Debian or Ubuntu guide and scripts
 
-> **Keep it simple.** No fancy plugins, no bloated stack. For most sites a VM with 1 vCPU and 1 GB RAM is plenty.
+> Keep it simple. No fancy plugins, no bloated stack. For most sites a VM with 1 vCPU and 1 GB RAM is plenty.
 
 ---
 
@@ -22,16 +22,16 @@ Sites are installed under `/var/www/html/<domain>`.
 
 ## Recommended Plugins
 
-- **[Akismet Anti-Spam](https://wordpress.org/plugins/akismet/)** — install even if comments are disabled.
-- **[Disable Comments](https://wordpress.org/plugins/disable-comments/)** — removes the comment system entirely.
-- **[WP Fastest Cache](https://wordpress.org/plugins/wp-fastest-cache/)** — the free version covers most small sites.
-- **[WP Mail SMTP](https://wordpress.org/plugins/wp-mail-smtp/)** — sends email via an external provider; no mail server needed.
+- [Akismet Anti-Spam](https://wordpress.org/plugins/akismet/)** — install even if comments are disabled.
+- [Disable Comments](https://wordpress.org/plugins/disable-comments/)** — removes the comment system entirely.
+- [WP Fastest Cache](https://wordpress.org/plugins/wp-fastest-cache/)** — the free version covers most small sites.
+- [WP Mail SMTP](https://wordpress.org/plugins/wp-mail-smtp/)** — sends email via an external provider; no mail server needed.
 
 ### Optional
 
-- **[Google XML Sitemaps](https://wordpress.org/plugins/google-sitemap-generator/)**
-- **[All-in-One WP Migration](https://wordpress.org/plugins/all-in-one-wp-migration/)**
-- **[WP DoNotTrack](https://wordpress.org/plugins/wp-donottrack/)**
+- [Google XML Sitemaps](https://wordpress.org/plugins/google-sitemap-generator/)**
+- [All-in-One WP Migration](https://wordpress.org/plugins/all-in-one-wp-migration/)**
+- [WP DoNotTrack](https://wordpress.org/plugins/wp-donottrack/)**
 
 ---
 
@@ -39,7 +39,10 @@ Sites are installed under `/var/www/html/<domain>`.
 
 Any of these work well for a small WordPress VPS:
 
-- https://contabo.com/en/ https://www.hetzner.com/ https://www.netcup.com/en https://www.ionos.de/ 
+- https://contabo.com/en/
+- https://www.hetzner.com/
+- https://www.netcup.com/en
+- https://www.ionos.de/ 
 
 ---
 

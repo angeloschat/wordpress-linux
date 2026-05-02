@@ -1,5 +1,5 @@
 ---
-- name: Setup WordPress with PHP-FPM + mpm_event on Apache
+- name: Install WordPress with Apache, Redis, fail2ban, and daily backups
   hosts: all
   become: yes
 
@@ -9,21 +9,18 @@
     php_version: "8.3"
     php_modules:
       - cli
-      - common
       - curl
-      - mbstring
-      - igbinary
+      - gd
       - imagick
       - intl
+      - json
+      - mbstring
+      - mysql
+      - opcache
+      - readline
+      - redis
       - xml
       - zip
-      - apcu
-      - memcached
-      - opcache
-      - redis
-      - ssh2
-      - mysqli
-      - fpm
     mysql_root_password: "CHANGE_THIS"
     wordpress_db_name: "wordpress_{{ domain | replace('.', '_') }}"
     wordpress_db_user: "wp_user_{{ domain | replace('.', '_') }}"
@@ -31,6 +28,9 @@
     wordpress_url: "https://wordpress.org/latest.tar.gz"
     wordpress_dir: "/var/www/html/{{ domain }}"
     certbot_email: "admin@{{ domain }}"
+    wp_admin_user: "admin"
+    wp_admin_password: "CHANGE_THIS"
+    wp_site_title: "{{ domain }}"
     additional_disk: ""
     additional_mount: "/datadrive"
 
@@ -39,28 +39,29 @@
       hostname:
         name: "{{ hostname }}"
 
-    - name: Update apt cache
+    - name: Update and upgrade apt packages
       apt:
         update_cache: yes
+        upgrade: yes
 
     - name: Install base packages
       apt:
         name:
-          - net-tools
-          - sudo
+          - apache2
+          - mariadb-server
+          - mariadb-client
+          - redis-server
+          - fail2ban
+          - ufw
           - wget
           - curl
           - unzip
           - bash-completion
           - software-properties-common
           - apt-transport-https
-          - apache2
-          - mariadb-server
-          - mariadb-client
           - certbot
           - python3-certbot-apache
           - python3-pymysql
-          - ufw
         state: present
 
     - name: Build PHP package list
@@ -72,22 +73,51 @@
         name: "{{ php_packages }}"
         state: present
 
-    - name: Configure firewall
+    - name: Enable and start Apache, MariaDB, and Redis
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - apache2
+        - mariadb
+        - redis-server
+
+    - name: Allow OpenSSH and Apache Full through UFW
       ufw:
         rule: allow
-        port: "{{ item }}"
-        proto: tcp
+        name: "{{ item }}"
       loop:
-        - "80"
-        - "443"
+        - OpenSSH
+        - Apache Full
 
-    - name: Enable firewall
+    - name: Enable UFW
       ufw:
         state: enabled
 
-    - name: Enable and start MariaDB
+    - name: Configure fail2ban jails
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [sshd]
+          enabled = true
+
+          [apache-auth]
+          enabled = true
+
+          [apache-badbots]
+          enabled = true
+
+          [apache-noscript]
+          enabled = true
+
+          [apache-overflows]
+          enabled = true
+      notify: Restart fail2ban
+
+    - name: Enable and start fail2ban
       systemd:
-        name: mariadb
+        name: fail2ban
         state: started
         enabled: true
 
@@ -118,133 +148,11 @@
         state: absent
       no_log: true
 
-    - name: Switch Apache to mpm_event and enable PHP-FPM
-      shell: |
-        a2dismod mpm_prefork php{{ php_version }} || true
-        a2enmod mpm_event proxy_fcgi setenvif rewrite ssl headers http2
-        a2enconf php{{ php_version }}-fpm
-      changed_when: false
-
-    - name: Enable and start PHP-FPM
-      systemd:
-        name: "php{{ php_version }}-fpm"
-        state: started
-        enabled: true
-
-    - name: Add OCSP stapling cache to ssl.conf
-      lineinfile:
-        path: /etc/apache2/mods-available/ssl.conf
-        line: 'SSLStaplingCache "shmcb:/var/run/ocsp_stapling(131072)"'
-        insertafter: EOF
-
-    - name: Enable and start Apache
-      systemd:
-        name: apache2
-        state: started
-        enabled: true
-
-    - name: Create site directory
-      file:
-        path: "{{ wordpress_dir }}"
-        state: directory
-        owner: www-data
-        group: www-data
-        mode: "0755"
-
-    - name: Create HTTP VirtualHost
-      copy:
-        dest: "/etc/apache2/sites-available/{{ domain }}.conf"
-        content: |
-          <VirtualHost *:80>
-              ServerAdmin {{ certbot_email }}
-              ServerName {{ domain }}
-              ServerAlias www.{{ domain }}
-              DocumentRoot {{ wordpress_dir }}
-
-              RewriteEngine On
-              RewriteCond %{REQUEST_URI} !^/\.well-known/
-              RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
-
-              ErrorLog ${APACHE_LOG_DIR}/{{ domain }}_error.log
-              CustomLog ${APACHE_LOG_DIR}/{{ domain }}_access.log combined
-          </VirtualHost>
-      notify: Reload Apache
-
-    - name: Enable HTTP site
-      shell: a2ensite {{ domain }}.conf
-      changed_when: false
-
-    - name: Validate Apache configuration
-      shell: apachectl configtest
-      changed_when: false
-
-    - name: Flush handlers before certbot
-      meta: flush_handlers
-
-    - name: Generate Let's Encrypt certificate
-      shell: >
-        certbot certonly --webroot -w {{ wordpress_dir }}
-        --non-interactive --agree-tos --email {{ certbot_email }}
-        -d {{ domain }} -d www.{{ domain }}
-      args:
-        creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
-
-    - name: Create HTTPS VirtualHost
-      copy:
-        dest: "/etc/apache2/sites-available/{{ domain }}-ssl.conf"
-        content: |
-          <VirtualHost *:443>
-              ServerAdmin {{ certbot_email }}
-              ServerName {{ domain }}
-              ServerAlias www.{{ domain }}
-              DocumentRoot {{ wordpress_dir }}
-
-              <Directory {{ wordpress_dir }}>
-                  Options FollowSymLinks
-                  AllowOverride All
-                  Require all granted
-              </Directory>
-
-              SSLEngine on
-              SSLCertificateFile /etc/letsencrypt/live/{{ domain }}/fullchain.pem
-              SSLCertificateKeyFile /etc/letsencrypt/live/{{ domain }}/privkey.pem
-              Protocols h2 http/1.1
-
-              SSLProtocol             -all +TLSv1.3
-              SSLCipherSuite          TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
-              SSLSessionTickets       off
-              SSLCompression          off
-              SSLUseStapling          on
-
-              Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-              Header always set X-Frame-Options DENY
-              Header always set X-Content-Type-Options nosniff
-              Header always set Referrer-Policy "strict-origin-when-cross-origin"
-              Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
-
-              ErrorLog ${APACHE_LOG_DIR}/{{ domain }}_error.log
-              CustomLog ${APACHE_LOG_DIR}/{{ domain }}_access.log combined
-          </VirtualHost>
-      notify: Reload Apache
-
-    - name: Enable HTTPS site
-      shell: |
-        a2ensite {{ domain }}-ssl.conf
-        apachectl configtest
-      changed_when: false
-      notify: Reload Apache
-
-    - name: Add Certbot renewal to crontab
-      cron:
-        name: "Certbot Renewal"
-        minute: "0"
-        hour: "2"
-        job: "certbot renew --quiet >> /var/log/letsencrypt.log"
-        state: present
-
     - name: Create WordPress database
       mysql_db:
         name: "{{ wordpress_db_name }}"
+        encoding: utf8mb4
+        collation: utf8mb4_unicode_ci
         login_user: root
         login_password: "{{ mysql_root_password }}"
         state: present
@@ -261,6 +169,14 @@
         state: present
       no_log: true
 
+    - name: Create site directory
+      file:
+        path: "{{ wordpress_dir }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
     - name: Download and extract WordPress
       shell: |
         wget -q {{ wordpress_url }} -O /tmp/latest.tar.gz
@@ -272,34 +188,274 @@
       args:
         creates: "{{ wordpress_dir }}/wp-login.php"
 
-    - name: Create wp-config.php
-      shell: |
-        WP_SALTS=$(curl -s https://api.wordpress.org/secret-key/1.1/salt/)
-        cat > {{ wordpress_dir }}/wp-config.php << 'WPEOF'
-        <?php
-        define( 'DB_NAME', '{{ wordpress_db_name }}' );
-        define( 'DB_USER', '{{ wordpress_db_user }}' );
-        define( 'DB_PASSWORD', '{{ wordpress_db_password }}' );
-        define( 'DB_HOST', 'localhost' );
-        define( 'DB_CHARSET', 'utf8mb4' );
-        define( 'DB_COLLATE', '' );
+    - name: Stop Apache for certbot standalone
+      systemd:
+        name: apache2
+        state: stopped
 
-        WPEOF
-        printf '%s\n' "$WP_SALTS" >> {{ wordpress_dir }}/wp-config.php
-        cat >> {{ wordpress_dir }}/wp-config.php << 'WPEOF'
-
-        $table_prefix = 'wp_';
-        define( 'WP_DEBUG', false );
-        if ( !defined( 'ABSPATH' ) ) {
-            define( 'ABSPATH', dirname( __FILE__ ) . '/' );
-        }
-        require_once ABSPATH . 'wp-settings.php';
-        WPEOF
-        chown www-data:www-data {{ wordpress_dir }}/wp-config.php
-        chmod 644 {{ wordpress_dir }}/wp-config.php
+    - name: Obtain Let's Encrypt certificate
+      shell: >
+        certbot certonly --standalone
+        --non-interactive --agree-tos
+        --email {{ certbot_email }}
+        -d {{ domain }}{% if domain.split('.') | length == 2 %} -d www.{{ domain }}{% endif %}
       args:
-        creates: "{{ wordpress_dir }}/wp-config.php"
+        creates: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+
+    - name: Start Apache after certbot
+      systemd:
+        name: apache2
+        state: started
+
+    - name: Enable Apache modules
+      shell: a2enmod rewrite ssl headers
+      changed_when: false
+
+    - name: Create SSLStaplingCache global config
+      copy:
+        dest: /etc/apache2/conf-available/ssl-stapling.conf
+        content: "SSLStaplingCache shmcb:/run/apache2/ocsp(128000)\n"
+
+    - name: Create HTTP VirtualHost
+      copy:
+        dest: "/etc/apache2/sites-available/{{ domain }}.conf"
+        content: |
+          <VirtualHost *:80>
+              ServerAdmin {{ certbot_email }}
+              ServerName {{ domain }}
+          {% if domain.split('.') | length == 2 %}
+              ServerAlias www.{{ domain }}
+          {% endif %}
+
+              RewriteEngine On
+              RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+              ErrorLog ${APACHE_LOG_DIR}/{{ domain }}_error.log
+              CustomLog ${APACHE_LOG_DIR}/{{ domain }}_access.log combined
+          </VirtualHost>
+
+    - name: Create HTTPS VirtualHost
+      copy:
+        dest: "/etc/apache2/sites-available/{{ domain }}-ssl.conf"
+        content: |
+          <VirtualHost *:443>
+              ServerAdmin {{ certbot_email }}
+              ServerName {{ domain }}
+          {% if domain.split('.') | length == 2 %}
+              ServerAlias www.{{ domain }}
+          {% endif %}
+              DocumentRoot {{ wordpress_dir }}
+
+              <Directory {{ wordpress_dir }}>
+                  Options FollowSymLinks
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+
+              SSLEngine on
+              SSLCertificateFile /etc/letsencrypt/live/{{ domain }}/fullchain.pem
+              SSLCertificateKeyFile /etc/letsencrypt/live/{{ domain }}/privkey.pem
+              Protocols h2 http/1.1
+
+              SSLProtocol             -all +TLSv1.3
+              SSLSessionTickets       off
+              SSLCompression          off
+              SSLUseStapling          on
+
+              Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+              Header always set X-Frame-Options DENY
+              Header always set X-Content-Type-Options nosniff
+              Header always set Referrer-Policy "strict-origin-when-cross-origin"
+              Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+
+              ErrorLog ${APACHE_LOG_DIR}/{{ domain }}_error.log
+              CustomLog ${APACHE_LOG_DIR}/{{ domain }}_access.log combined
+          </VirtualHost>
+
+    - name: Enable sites and ssl-stapling conf
+      shell: |
+        a2ensite {{ domain }}.conf {{ domain }}-ssl.conf
+        a2enconf ssl-stapling
+        apachectl configtest
+      changed_when: false
+      notify: Restart Apache
+
+    - name: Check if wp-config.php exists
+      stat:
+        path: "{{ wordpress_dir }}/wp-config.php"
+      register: wp_config
+
+    - name: Fetch WordPress secret keys
+      shell: curl -s https://api.wordpress.org/secret-key/1.1/salt/
+      register: wp_salts
+      when: not wp_config.stat.exists
+      changed_when: false
       no_log: true
+
+    - name: Create wp-config.php
+      copy:
+        dest: "{{ wordpress_dir }}/wp-config.php"
+        owner: www-data
+        group: www-data
+        mode: "0644"
+        content: |
+          <?php
+          define( 'DB_NAME', '{{ wordpress_db_name }}' );
+          define( 'DB_USER', '{{ wordpress_db_user }}' );
+          define( 'DB_PASSWORD', '{{ wordpress_db_password }}' );
+          define( 'DB_HOST', 'localhost' );
+          define( 'DB_CHARSET', 'utf8mb4' );
+          define( 'DB_COLLATE', '' );
+
+          {{ wp_salts.stdout }}
+
+          define( 'WP_REDIS_HOST', '127.0.0.1' );
+          define( 'WP_REDIS_PORT', 6379 );
+          define( 'WP_CACHE', true );
+
+          $table_prefix = 'wp_';
+          define( 'WP_DEBUG', false );
+          if ( !defined( 'ABSPATH' ) ) {
+              define( 'ABSPATH', dirname( __FILE__ ) . '/' );
+          }
+          require_once ABSPATH . 'wp-settings.php';
+      when: not wp_config.stat.exists
+      no_log: true
+
+    - name: Install WP-CLI
+      shell: |
+        curl -sO https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        chmod +x wp-cli.phar
+        mv wp-cli.phar /usr/local/bin/wp
+      args:
+        creates: /usr/local/bin/wp
+
+    - name: Flush handlers before WordPress install
+      meta: flush_handlers
+
+    - name: Check if WordPress core is installed
+      shell: sudo -u www-data wp core is-installed --path="{{ wordpress_dir }}"
+      register: wp_installed
+      failed_when: false
+      changed_when: false
+
+    - name: Run WordPress core install
+      shell: >
+        sudo -u www-data wp core install
+        --url="https://{{ domain }}"
+        --title="{{ wp_site_title }}"
+        --admin_user="{{ wp_admin_user }}"
+        --admin_password="{{ wp_admin_password }}"
+        --admin_email="{{ certbot_email }}"
+        --path="{{ wordpress_dir }}"
+      when: wp_installed.rc != 0
+      no_log: true
+
+    - name: Install and activate redis-cache plugin
+      shell: >
+        sudo -u www-data wp plugin install redis-cache --activate
+        --path="{{ wordpress_dir }}"
+      changed_when: false
+
+    - name: Enable Redis object cache
+      shell: >
+        sudo -u www-data wp redis enable
+        --path="{{ wordpress_dir }}"
+      changed_when: false
+
+    - name: Create backups directory
+      file:
+        path: /opt/backups
+        state: directory
+        mode: "0755"
+
+    - name: Create backup script
+      copy:
+        dest: /usr/local/bin/wp-backup.sh
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -e
+          DATE=$(date +%F)
+          BACKUP_DIR="/opt/backups/$DATE"
+          mkdir -p "$BACKUP_DIR"
+          SITE="{{ domain }}"
+          WEBROOT="{{ wordpress_dir }}"
+          tar -czf "$BACKUP_DIR/${SITE}_files.tar.gz" -C "$WEBROOT" .
+          DB_NAME=$(grep "DB_NAME" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+          DB_USER=$(grep "DB_USER" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+          DB_PASS=$(grep "DB_PASSWORD" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+          mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$BACKUP_DIR/${SITE}_db.sql"
+          find /opt/backups -maxdepth 1 -type d -mtime +7 -exec rm -rf {} \;
+
+    - name: Create restore script
+      copy:
+        dest: /usr/local/bin/wp-restore.sh
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -e
+          BACKUP_BASE="/opt/backups"
+          if [[ $EUID -ne 0 ]]; then
+              echo "Error: run as root."
+              exit 1
+          fi
+          echo "Available backups:"
+          DATES=()
+          i=1
+          for d in $(ls -1r "$BACKUP_BASE"); do
+              [[ -d "$BACKUP_BASE/$d" ]] || continue
+              echo "  $i) $d"
+              DATES+=("$d")
+              ((i++))
+          done
+          [[ ${#DATES[@]} -eq 0 ]] && { echo "No backups found in $BACKUP_BASE."; exit 1; }
+          read -p "Select backup number: " SEL
+          [[ -z "$SEL" || "$SEL" -lt 1 || "$SEL" -gt ${#DATES[@]} ]] && { echo "Invalid selection."; exit 1; }
+          DATE="${DATES[$((SEL-1))]}"
+          BACKUP_DIR="$BACKUP_BASE/$DATE"
+          SITE=$(ls "$BACKUP_DIR"/*_files.tar.gz 2>/dev/null | head -1 | xargs basename | sed 's/_files\.tar\.gz//')
+          [[ -z "$SITE" ]] && { echo "Error: no file backup found in $BACKUP_DIR."; exit 1; }
+          WEBROOT="/var/www/html/$SITE"
+          FILES_BACKUP="$BACKUP_DIR/${SITE}_files.tar.gz"
+          DB_BACKUP="$BACKUP_DIR/${SITE}_db.sql"
+          echo ""
+          echo "Site   : $SITE"
+          echo "Date   : $DATE"
+          echo "Files  : $FILES_BACKUP"
+          echo "DB     : $DB_BACKUP"
+          echo ""
+          read -p "WARNING: this will overwrite live files and database. Continue? (yes/no): " CONFIRM
+          [[ "$CONFIRM" != "yes" ]] && { echo "Aborted."; exit 0; }
+          echo "Restoring files..."
+          rm -rf "$WEBROOT"
+          mkdir -p "$WEBROOT"
+          tar -xzf "$FILES_BACKUP" -C "$WEBROOT"
+          chown -R www-data:www-data "$WEBROOT"
+          find "$WEBROOT" -type d -exec chmod 755 {} \;
+          find "$WEBROOT" -type f -exec chmod 644 {} \;
+          echo "Restoring database..."
+          DB_NAME=$(grep "DB_NAME" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+          DB_USER=$(grep "DB_USER" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+          DB_PASS=$(grep "DB_PASSWORD" "$WEBROOT/wp-config.php" | cut -d "'" -f4)
+          mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$DB_BACKUP"
+          echo "Restore complete. Site $SITE is back to $DATE."
+
+    - name: Add backup cron job
+      cron:
+        name: "WordPress backup"
+        minute: "0"
+        hour: "3"
+        job: "/usr/local/bin/wp-backup.sh >> /var/log/wp-backup.log 2>&1"
+        state: present
+
+    - name: Add Certbot renewal cron job
+      cron:
+        name: "Certbot renewal"
+        minute: "0"
+        hour: "2"
+        job: "certbot renew --quiet >> /var/log/letsencrypt.log 2>&1"
+        state: present
 
     - name: Mount and configure additional disk
       when: additional_disk | length > 0
@@ -333,7 +489,12 @@
             line: "{{ disk_uuid.stdout }} {{ additional_mount }} ext4 defaults,nofail 1 2"
 
   handlers:
-    - name: Reload Apache
+    - name: Restart Apache
       systemd:
         name: apache2
-        state: reloaded
+        state: restarted
+
+    - name: Restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted

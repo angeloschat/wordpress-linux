@@ -1,6 +1,6 @@
 # WordPress on Linux
 
-Install WordPress on Debian or Ubuntu in a few easy steps.
+Install WordPress on Debian or Ubuntu guide and scripts
 
 > **Keep it simple.** No fancy plugins, no bloated stack. For most sites a VM with 1 vCPU and 1 GB RAM is plenty.
 
@@ -39,15 +39,14 @@ Sites are installed under `/var/www/html/<domain>`.
 
 Any of these work well for a small WordPress VPS:
 
-- **[Vultr](https://www.vultr.com)** / **[DigitalOcean](https://www.digitalocean.com)** / **[Linode](https://www.linode.com)** — straightforward, predictable pricing.
-- **AWS Lightsail** / **Azure** — both have free tiers worth exploring.
+- https://contabo.com/en/ https://www.hetzner.com/ https://www.netcup.com/en https://www.ionos.de/ 
 
 ---
 
 ## Performance Tips
 
 - Put a CDN in front — [Cloudflare](https://www.cloudflare.com) has a free plan that works well for small installations.
-- Keep WordPress, themes, and plugins updated.
+- Keep WordPress, themes, and plugins updated an to the minimal.
 
 ## Security
 
@@ -56,4 +55,4 @@ Any of these work well for a small WordPress VPS:
 
 ---
 
-*Last updated: April 2026*
+*Last updated: May 2026*

@@ -10,12 +10,12 @@ Install WordPress on Debian or Ubuntu guide and scripts
 
 | File | Type | Purpose |
 |---|---|---|
+| `install.txt` | Manual guide | Step-by-step reference for a manual install - original |
+| `install_wordpress.sh` | Shell script | Claude Code version |
+| `install_wordpress_per.sh` | Shell script | Perplexity version |
+| `install_wordpress_gpt.sh` | Shell script | ChatGPT version |
+| `installv2.txt` |  Manual guide | Step-by-step reference for a manual install AI enchanced |
 | `setup.yml` | Ansible playbook | Full automated server setup — run with `ansible-playbook setup.yml` |
-| `install.txt` | Manual guide | Step-by-step reference for a manual install |
-| `install_wordpress.sh` | Shell script | Automated single-site install with Let's Encrypt |
-| `install_wordpress_ssl.sh` | Shell script | Automated single-site install, SSL via webroot method |
-| `add_site.sh` | Shell script | Add a new WordPress site to an existing server |
-
 Sites are installed under `/var/www/html/<domain>`.
 
 ---
@@ -54,5 +54,5 @@ Any of these work well for a small WordPress VPS:
 - Scripts enforce TLS 1.3 only with AEAD ciphers, HSTS, OCSP stapling, and HTTP → HTTPS redirect.
 
 ---
-
+AI is used to experiment.
 *Last updated: May 2026*

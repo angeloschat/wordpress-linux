@@ -22,16 +22,16 @@ Sites are installed under `/var/www/html/<domain>`.
 
 ## Recommended Plugins
 
-- [Akismet Anti-Spam](https://wordpress.org/plugins/akismet/)** — install even if comments are disabled.
-- [Disable Comments](https://wordpress.org/plugins/disable-comments/)** — removes the comment system entirely.
-- [WP Fastest Cache](https://wordpress.org/plugins/wp-fastest-cache/)** — the free version covers most small sites.
-- [WP Mail SMTP](https://wordpress.org/plugins/wp-mail-smtp/)** — sends email via an external provider; no mail server needed.
+- [Akismet Anti-Spam](https://wordpress.org/plugins/akismet/) — install even if comments are disabled.
+- [Disable Comments](https://wordpress.org/plugins/disable-comments/) — removes the comment system entirely.
+- [WP Fastest Cache](https://wordpress.org/plugins/wp-fastest-cache/) — the free version covers most small sites.
+- [WP Mail SMTP](https://wordpress.org/plugins/wp-mail-smtp/) — sends email via an external provider; no mail server needed.
 
 ### Optional
 
-- [Google XML Sitemaps](https://wordpress.org/plugins/google-sitemap-generator/)**
-- [All-in-One WP Migration](https://wordpress.org/plugins/all-in-one-wp-migration/)**
-- [WP DoNotTrack](https://wordpress.org/plugins/wp-donottrack/)**
+- [Google XML Sitemaps](https://wordpress.org/plugins/google-sitemap-generator/)
+- [All-in-One WP Migration](https://wordpress.org/plugins/all-in-one-wp-migration/)
+- [WP DoNotTrack](https://wordpress.org/plugins/wp-donottrack/).
 
 ---
 
@@ -53,7 +53,8 @@ Any of these work well for a small WordPress VPS:
 
 ## Security
 
-- Validate your SSL configuration with **[Mozilla SSL Config Generator](https://ssl-config.mozilla.org/)**.
+- Validate your SSL configuration with [Mozilla SSL Config Generator](https://ssl-config.mozilla.org/).
+- Test your site with [Modern Internet Standards](https://en.internet.nl/).
 - Scripts enforce TLS 1.3 only with AEAD ciphers, HSTS, OCSP stapling, and HTTP → HTTPS redirect.
 
 ---
